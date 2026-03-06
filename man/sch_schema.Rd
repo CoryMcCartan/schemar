@@ -20,7 +20,7 @@ sch_schema(..., .desc = NULL)
 
 sch_others()
 
-sch_nest(..., .keys = character(0), .desc = NULL, distinct = FALSE)
+sch_nest(..., .keys = character(0), .desc = NULL)
 
 sch_numeric(
   desc = NULL,
@@ -119,16 +119,13 @@ Trailing commas are permitted.}
 \item{.keys}{A character vector selecting one or more column names from \code{...}
 that serve as the key columns for the nested group.}
 
-\item{distinct}{If \code{TRUE}, the column must contain no duplicate values (after
-accounting for nesting structure). If \code{FALSE} (the default), duplicates are allowed.}
-
 \item{desc, .desc}{A description of the column for consumers of the schema.
 The type contraints will be described separately and do not need to be
-included in the description.  For example for "age", the descriptoin might
+included in the description.  For example for "age", the description might
 be "Age of the patient in years", not "Non-negative integer representing
 the age of the patient in years".}
 
-\item{bounds, }{Length-two vector \code{c(min, max)} specifying the allowed range of values.}
+\item{bounds}{Length-two vector \code{c(min, max)} specifying the allowed range of values.}
 
 \item{closed}{Length-two logical vector specifying whether the bounds are
 closed (inclusive) or open (exclusive).}
@@ -138,6 +135,9 @@ any missing values result in an error.}
 
 \item{required}{If \code{TRUE}, the column must be present. If \code{FALSE}, the column
 is optional.}
+
+\item{distinct}{If \code{TRUE}, the column must contain no duplicate values (after
+accounting for nesting structure).}
 
 \item{levels}{A character vector of factor levels.}
 
@@ -200,9 +200,9 @@ within a certain range.
 \item \code{sch_list_of()}: A vector satisfying \verb{inherits(_, class)}.
 
 \item \code{sch_custom()}: A custom type defined by user-provided check, error,
-and coercion functions. Additional Additional named values to be stored
-along with the type specification may be passed via \code{...} and will be available
-to the check, error, and coercion functions.
+and coercion functions. Additional named values to be stored along with the
+type specification may be passed via \code{...} and will be available to the
+check, error, and coercion functions.
 
 }}
 \examples{

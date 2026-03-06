@@ -182,7 +182,8 @@ test_that("sch_custom() creates a valid custom type", {
 
 test_that("sch_custom() errors on reserved names", {
     expect_error(
-        sch_custom("numeric",
+        sch_custom(
+            "numeric",
             check = function(x, type) TRUE,
             msg = function(type) "x",
             coerce = function(x, type) x
@@ -190,7 +191,8 @@ test_that("sch_custom() errors on reserved names", {
         "reserved"
     )
     expect_error(
-        sch_custom("other",
+        sch_custom(
+            "other",
             check = function(x, type) TRUE,
             msg = function(type) "x",
             coerce = function(x, type) x
@@ -201,7 +203,8 @@ test_that("sch_custom() errors on reserved names", {
 
 test_that("sch_custom() errors when name is not a single string", {
     expect_error(
-        sch_custom(c("a", "b"),
+        sch_custom(
+            c("a", "b"),
             check = function(x, type) TRUE,
             msg = function(type) "x",
             coerce = function(x, type) x
@@ -212,7 +215,8 @@ test_that("sch_custom() errors when name is not a single string", {
 test_that("sch_custom() errors on wrong function signatures", {
     # check must have 2 args
     expect_error(
-        sch_custom("mytype",
+        sch_custom(
+            "mytype",
             check = function(x) TRUE,
             msg = function(type) "x",
             coerce = function(x, type) x
@@ -221,7 +225,8 @@ test_that("sch_custom() errors on wrong function signatures", {
     )
     # msg must have 1 arg
     expect_error(
-        sch_custom("mytype",
+        sch_custom(
+            "mytype",
             check = function(x, type) TRUE,
             msg = function(type, extra) "x",
             coerce = function(x, type) x
@@ -230,7 +235,8 @@ test_that("sch_custom() errors on wrong function signatures", {
     )
     # coerce must have 2 args
     expect_error(
-        sch_custom("mytype",
+        sch_custom(
+            "mytype",
             check = function(x, type) TRUE,
             msg = function(type) "x",
             coerce = function(x) x
@@ -255,7 +261,8 @@ test_that("sch_custom() errors on unnamed extra arguments", {
 })
 
 test_that("sch_custom() stores extra named arguments", {
-    x <- sch_custom("mytype",
+    x <- sch_custom(
+        "mytype",
         check = function(x, type) TRUE,
         msg = function(type) "x",
         coerce = function(x, type) x,
@@ -651,7 +658,15 @@ test_that("All column types default distinct to FALSE", {
     expect_false(attr(sch_datetime(), "distinct"))
     expect_false(attr(sch_inherits(class = "myClass"), "distinct"))
     expect_false(attr(sch_list_of(class = "data.frame"), "distinct"))
-    expect_false(attr(sch_custom(name = "test", check = function(x, type) TRUE, msg = function(type) "test", coerce = function(x, type) x), "distinct"))
+    expect_false(attr(
+        sch_custom(
+            name = "test",
+            check = function(x, type) TRUE,
+            msg = function(type) "test",
+            coerce = function(x, type) x
+        ),
+        "distinct"
+    ))
     expect_false(attr(sch_others(), "distinct"))
 })
 
@@ -671,22 +686,6 @@ test_that("distinct = FALSE explicitly is stored as attribute", {
     expect_false(attr(x, "distinct"))
 })
 
-test_that("sch_nest() supports distinct argument", {
-    x <- sch_nest(
-        id = sch_integer(),
-        value = sch_numeric(),
-        distinct = FALSE
-    )
-    expect_false(attr(x, "distinct"))
-
-    y <- sch_nest(
-        id = sch_integer(),
-        value = sch_numeric(),
-        distinct = TRUE
-    )
-    expect_true(attr(y, "distinct"))
-})
-
 test_that("[Distinct] flag appears in schema print output for distinct columns", {
     x <- sch_schema(
         id = sch_integer(distinct = TRUE),
@@ -695,7 +694,7 @@ test_that("[Distinct] flag appears in schema print output for distinct columns",
     )
     output <- capture.output(print(x))
     output_text <- paste(output, collapse = "\n")
-    
+
     # Check that [Distinct] flag appears in output
     expect_match(output_text, "\\[Distinct\\]")
 })
@@ -707,7 +706,7 @@ test_that("[Distinct] flag does not appear for non-distinct columns", {
     )
     output <- capture.output(print(x))
     output_text <- paste(output, collapse = "\n")
-    
+
     # [Distinct] flag should not appear
     expect_false(grepl("\\[Distinct\\]", output_text))
 })
@@ -719,7 +718,7 @@ test_that("[Distinct] and [Optional] flags work together", {
     )
     output <- capture.output(print(x))
     output_text <- paste(output, collapse = "\n")
-    
+
     # Both flags should appear
     expect_match(output_text, "\\[Distinct\\]")
     expect_match(output_text, "\\[Optional\\]")
@@ -735,6 +734,86 @@ test_that("Nested schema columns show [Distinct] flag", {
     )
     output <- capture.output(print(x))
     output_text <- paste(output, collapse = "\n")
-    
+
     expect_match(output_text, "\\[Distinct\\]")
+})
+
+# Regression tests: strict factor level validation ----
+
+test_that("strict factor with wrong levels attribute raises error", {
+    schema <- sch_schema(x = sch_factor(levels = c("a", "b"), strict = TRUE))
+    df <- data.frame(x = factor(c("x", "y"), levels = c("x", "y")))
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
+test_that("strict factor with extra levels in attribute raises error", {
+    schema <- sch_schema(x = sch_factor(levels = c("a", "b"), strict = TRUE))
+    df <- data.frame(x = factor(c("a", "b"), levels = c("a", "b", "c")))
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
+test_that("strict factor with exact schema levels passes", {
+    schema <- sch_schema(x = sch_factor(levels = c("a", "b"), strict = TRUE))
+    df <- data.frame(x = factor(c("a", "b"), levels = c("a", "b")))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("strict factor with values outside schema levels raises error", {
+    schema <- sch_schema(x = sch_factor(levels = c("a", "b"), strict = TRUE))
+    df <- data.frame(x = factor(c("a", "z"), levels = c("a", "b", "z")))
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
+test_that("non-strict factor ignores extra entries in levels attribute", {
+    schema <- sch_schema(x = sch_factor(levels = c("a", "b"), strict = FALSE))
+    df <- data.frame(x = factor(c("a", "b"), levels = c("a", "b", "extra")))
+    expect_no_error(sch_validate(schema, df))
+})
+
+# Regression tests: non-strict factor with NAs ----
+
+test_that("non-strict factor with character and NA allowed when missing=TRUE", {
+    schema <- sch_schema(
+        x = sch_factor(levels = c("a", "b"), strict = FALSE, missing = TRUE)
+    )
+    df <- data.frame(x = c("a", NA), stringsAsFactors = FALSE)
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("non-strict factor with character and NA raises 'missing values' when missing=FALSE", {
+    schema <- sch_schema(
+        x = sch_factor(levels = c("a", "b"), strict = FALSE, missing = FALSE)
+    )
+    df <- data.frame(x = c("a", NA), stringsAsFactors = FALSE)
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "missing values")
+})
+
+test_that("non-strict factor with factor input and NA allowed when missing=TRUE", {
+    schema <- sch_schema(
+        x = sch_factor(levels = c("a", "b"), strict = FALSE, missing = TRUE)
+    )
+    df <- data.frame(x = factor(c("a", NA), levels = c("a", "b")))
+    expect_no_error(sch_validate(schema, df))
+})
+
+# Regression tests: sch_list_of with NULL elements ----
+
+test_that("list_of with NULL element and missing=TRUE passes", {
+    schema <- sch_schema(x = sch_list_of(class = "data.frame", missing = TRUE))
+    df <- data.frame(x = I(list(data.frame(a = 1), NULL)))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("list_of with NULL element and missing=FALSE raises error", {
+    schema <- sch_schema(x = sch_list_of(class = "data.frame", missing = FALSE))
+    df <- data.frame(x = I(list(data.frame(a = 1), NULL)))
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "missing values")
+})
+
+test_that("list_of with all valid elements passes", {
+    schema <- sch_schema(x = sch_list_of(class = "data.frame"))
+    df <- data.frame(x = I(list(data.frame(a = 1), data.frame(a = 2))))
+    expect_no_error(sch_validate(schema, df))
 })

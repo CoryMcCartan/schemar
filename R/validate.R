@@ -10,10 +10,9 @@
 #'   - `"names"`: check for missing required columns and unexpected extra columns.
 #'   - `"types"`: check column types and missing-value (`NA`) constraints.
 #'   - `"distinct"`: check uniqueness constraints for columns marked
-#'     `distinct = TRUE`. Omit this for large data frames where the check is
-#'     expensive.
+#'     `distinct = TRUE`. Relatively expensive.
 #'   - `"nesting"`: validate nested schema columns (flat and named nests),
-#'     including key consistency.
+#'     including key consistency. Relatively expensive.
 #' @param call The environment or call used for error reporting, passed to
 #'   [rlang::abort()]. Useful when wrapping `sch_validate()` inside another
 #'   function so that the error points to the right place.
@@ -65,7 +64,7 @@ sch_validate <- function(
     if ("distinct" %in% check) {
         issues <- c(issues, validate_distinct(schema$cols, data, col_info))
     }
-    if ("nesting" %in% check) {
+    if (any(c("names", "nesting") %in% check)) {
         issues <- c(issues, validate_nests(schema$cols, data, col_info, check))
     }
 
@@ -108,7 +107,7 @@ validate_names <- function(cols, data, col_info, path, group_by) {
     }
     issues <- list()
 
-    # Gather expected column names
+    # Gather expected column names and detect missing required non-nest columns
     expected_names <- character(0)
     for (i in seq_along(cols)) {
         if (col_info$is_other[i]) {
@@ -117,7 +116,19 @@ validate_names <- function(cols, data, col_info, path, group_by) {
         if (col_info$is_flat_nest[i]) {
             expected_names <- c(expected_names, get_all_flat_col_names(cols[[i]]$cols))
         } else {
-            expected_names <- c(expected_names, col_info$nms[i])
+            col_nm <- col_info$nms[i]
+            expected_names <- c(expected_names, col_nm)
+            if (
+                !col_info$is_named_nest[i] &&
+                    !col_nm %in% names(data) &&
+                    isTRUE(attr(cols[[i]], "required"))
+            ) {
+                expected_type <- type_fns[[cols[[i]]$type]]$msg(cols[[i]])
+                issues <- c(
+                    issues,
+                    list(make_issue("missing_column", c(path, col_nm), expected = expected_type))
+                )
+            }
         }
     }
 
@@ -146,22 +157,15 @@ validate_types_missing <- function(cols, data, col_info, path) {
         col_nm <- col_info$nms[i]
         col_path <- c(path, col_nm)
 
-        # Check if column exists
+        # Skip columns that don't exist (missing required column check is in validate_names)
         if (!col_nm %in% names(data)) {
-            if (attr(tt, "required")) {
-                expected <- type_fns[[tt$type]]$msg(tt)
-                issues <- c(
-                    issues,
-                    list(make_issue("missing_column", col_path, expected = expected))
-                )
-            }
             next
         }
 
         x <- data[[col_nm]]
 
         # Check type
-        if (!type_fns[[tt$type]]$check(x, tt)) {
+        if (!isTRUE(type_fns[[tt$type]]$check(x, tt))) {
             expected <- type_fns[[tt$type]]$msg(tt)
             a_an = if (grepl("^[aeiou]", expected)) "An " else "A "
             issues <- c(
@@ -170,9 +174,16 @@ validate_types_missing <- function(cols, data, col_info, path) {
             )
         }
 
-        # Check missing values
-        if (!attr(tt, "missing") && anyNA(x)) {
-            issues <- c(issues, list(make_issue("has_na", col_path)))
+        # Check missing values (NULLs in list-columns also count as missing)
+        if (!attr(tt, "missing")) {
+            is_missing <- if (is.list(x)) {
+                anyNA(x) || any(vapply(x, is.null, logical(1)))
+            } else {
+                anyNA(x)
+            }
+            if (is_missing) {
+                issues <- c(issues, list(make_issue("has_na", col_path)))
+            }
         }
     }
 
@@ -280,7 +291,7 @@ validate_flat_nest <- function(nest, data, check, path, group_by) {
     if ("distinct" %in% check) {
         issues <- c(issues, validate_distinct(nest$cols, data, col_info, path, group_by))
     }
-    if ("nesting" %in% check) {
+    if (any(c("names", "nesting") %in% check)) {
         issues <- c(issues, validate_nests(nest$cols, data, col_info, check, path, group_by))
     }
 
@@ -340,7 +351,7 @@ validate_named_nest <- function(nest, col_nm, data, check, path) {
                 validate_distinct(nest$cols, elem, col_info, character(0), col_path)
             )
         }
-        if ("nesting" %in% check) {
+        if (any(c("names", "nesting") %in% check)) {
             inner_issues <- c(
                 inner_issues,
                 validate_nests(nest$cols, elem, col_info, check, character(0), col_path)
@@ -405,14 +416,16 @@ check_col_distinct <- function(data, col_nm, col_path, group_by) {
     grp <- intersect(group_by, names(data))
 
     if (length(grp) == 0) {
-        if (vctrs::vec_unique_count(x) != vctrs::vec_size(x)) {
+        x_obs <- x[!is.na(x)]
+        if (vctrs::vec_unique_count(x_obs) != vctrs::vec_size(x_obs)) {
             return(list(make_issue("not_distinct", col_path)))
         }
     } else {
         locs <- vctrs::vec_group_loc(data[grp])
         for (loc in locs$loc) {
             vals <- vctrs::vec_slice(x, loc)
-            if (vctrs::vec_unique_count(vals) != vctrs::vec_size(vals)) {
+            vals_obs <- vals[!is.na(vals)]
+            if (vctrs::vec_unique_count(vals_obs) != vctrs::vec_size(vals_obs)) {
                 return(list(make_issue("not_distinct", col_path)))
             }
         }

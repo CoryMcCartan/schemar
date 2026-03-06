@@ -548,3 +548,339 @@ test_that("error message mentions issue count", {
     df <- data.frame(x = c(1, NA), y = c(1.5, 2.5))
     expect_error(sch_validate(schema, df), "2 issues")
 })
+
+# Regression tests: check="names" detects missing required columns ----
+
+test_that('check="names" detects missing required regular column', {
+    schema <- sch_schema(
+        x = sch_numeric(),
+        y = sch_character()
+    )
+    df <- data.frame(x = 1)
+    expect_error(
+        sch_validate(schema, df, check = "names"),
+        class = "sch_validation_error"
+    )
+    expect_error(sch_validate(schema, df, check = "names"), "Required.*missing")
+})
+
+test_that('check="names" does not error on absent optional column', {
+    schema <- sch_schema(
+        x = sch_numeric(),
+        y = sch_character(required = FALSE)
+    )
+    df <- data.frame(x = 1)
+    expect_no_error(sch_validate(schema, df, check = "names"))
+})
+
+test_that('check="names" detects missing required named nest column', {
+    schema <- sch_schema(
+        id = sch_integer(),
+        details = sch_nest(param = sch_character())
+    )
+    df <- data.frame(id = 1L)
+    expect_error(
+        sch_validate(schema, df, check = "names"),
+        class = "sch_validation_error"
+    )
+    expect_error(sch_validate(schema, df, check = "names"), "Required.*missing")
+})
+
+test_that('check="names" detects missing required inner column in flat nest', {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_nest(
+            param = sch_character(),
+            value = sch_numeric()
+        )
+    )
+    df <- data.frame(id = c(1L, 1L), param = c("a", "b"))
+    expect_error(
+        sch_validate(schema, df, check = "names"),
+        class = "sch_validation_error"
+    )
+    expect_error(sch_validate(schema, df, check = "names"), "Required.*missing")
+})
+
+# Regression tests: custom type checks with NAs ----
+
+test_that("NA-unaware custom check with NA input raises sch_validation_error", {
+    even <- sch_custom(
+        name = "even",
+        check = function(x, type) is.integer(x) && all(x %% 2 == 0),
+        msg = function(type) "vector of even integers",
+        coerce = function(x, type) (as.integer(x) %/% 2L) * 2L
+    )
+    schema <- sch_schema(x = even)
+    df <- data.frame(x = c(2L, NA_integer_))
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
+test_that("custom check that explicitly returns NA raises sch_validation_error", {
+    always_na <- sch_custom(
+        name = "always_na",
+        check = function(x, type) NA,
+        msg = function(type) "a type that always returns NA",
+        coerce = function(x, type) x
+    )
+    schema <- sch_schema(x = always_na)
+    df <- data.frame(x = 1)
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
+test_that("valid custom type with no NAs passes without error", {
+    even <- sch_custom(
+        name = "even2",
+        check = function(x, type) is.integer(x) && all(x %% 2L == 0L),
+        msg = function(type) "vector of even integers",
+        coerce = function(x, type) (as.integer(x) %/% 2L) * 2L
+    )
+    schema <- sch_schema(x = even)
+    df <- data.frame(x = c(2L, 4L, 6L))
+    expect_no_error(sch_validate(schema, df))
+})
+
+# Regression tests: distinct=TRUE with multiple NAs ----
+
+test_that("distinct=TRUE, missing=TRUE allows two NAs", {
+    schema <- sch_schema(x = sch_integer(distinct = TRUE, missing = TRUE))
+    df <- data.frame(x = c(1L, 2L, NA_integer_, NA_integer_))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("distinct=TRUE, missing=FALSE raises 'missing values' for single NA", {
+    schema <- sch_schema(x = sch_integer(distinct = TRUE, missing = FALSE))
+    df <- data.frame(x = c(1L, 2L, NA_integer_))
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "missing values")
+})
+
+test_that("distinct=TRUE, missing=TRUE allows one NA among distinct values", {
+    schema <- sch_schema(x = sch_integer(distinct = TRUE, missing = TRUE))
+    df <- data.frame(x = c(1L, 2L, 3L, NA_integer_))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("distinct=TRUE, missing=TRUE detects duplicate non-NA values", {
+    schema <- sch_schema(x = sch_integer(distinct = TRUE, missing = TRUE))
+    df <- data.frame(x = c(1L, 1L, NA_integer_, NA_integer_))
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_error(sch_validate(schema, df), "duplicate")
+})
+
+# Regression tests: flat nest edge cases ----
+
+test_that("flat nest with single outer group: key consistency passes", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_nest(
+            param = sch_character(),
+            value = sch_numeric(),
+            .keys = "param"
+        )
+    )
+    df <- data.frame(
+        id = c(1L, 1L),
+        param = c("a", "b"),
+        value = c(1.1, 2.2)
+    )
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("flat nest: single group inner distinct=TRUE is still enforced", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_nest(
+            param = sch_character(distinct = TRUE),
+            value = sch_numeric(),
+            .keys = "param"
+        )
+    )
+    df <- data.frame(
+        id = c(1L, 1L, 1L),
+        param = c("a", "a", "b"),
+        value = c(1.1, 2.2, 3.3)
+    )
+    expect_error(sch_validate(schema, df), "duplicate")
+})
+
+test_that("flat nest: only one group violates inner distinct", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_nest(
+            param = sch_character(distinct = TRUE),
+            value = sch_numeric(),
+            .keys = "param"
+        )
+    )
+    df <- data.frame(
+        id = c(1L, 1L, 1L, 2L, 2L),
+        param = c("a", "a", "b", "a", "b"),
+        value = c(1.1, 2.2, 3.3, 4.4, 5.5)
+    )
+    expect_error(sch_validate(schema, df), "duplicate")
+})
+
+test_that("flat nest: optional inner column may be absent", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_nest(
+            param = sch_character(),
+            value = sch_numeric(required = FALSE)
+        )
+    )
+    df <- data.frame(
+        id = c(1L, 1L),
+        param = c("a", "b")
+    )
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("flat nest: two outer distinct=TRUE columns both pre-collapsed", {
+    schema <- sch_schema(
+        id = sch_integer(distinct = TRUE),
+        code = sch_character(distinct = TRUE),
+        sch_nest(
+            param = sch_character(),
+            value = sch_numeric(),
+            .keys = "param"
+        )
+    )
+    df <- data.frame(
+        id = c(1L, 1L, 2L, 2L),
+        code = c("A", "A", "B", "B"),
+        param = c("x", "y", "x", "y"),
+        value = c(1.0, 2.0, 3.0, 4.0)
+    )
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("flat nest: outer column violates distinct after collapsing", {
+    schema <- sch_schema(
+        id = sch_integer(distinct = TRUE),
+        code = sch_character(distinct = TRUE),
+        sch_nest(
+            param = sch_character(),
+            value = sch_numeric(),
+            .keys = "param"
+        )
+    )
+    df <- data.frame(
+        id = c(1L, 1L, 1L, 1L),
+        code = c("A", "A", "B", "B"),
+        param = c("x", "y", "x", "y"),
+        value = c(1.0, 2.0, 3.0, 4.0)
+    )
+    expect_error(sch_validate(schema, df), "duplicate")
+})
+
+# Regression tests: named nest completeness and inner distinct ----
+
+test_that("named nest: inner distinct=TRUE all satisfied", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        details = sch_nest(
+            param = sch_character(distinct = TRUE),
+            value = sch_numeric()
+        )
+    )
+    df <- data.frame(id = c(1L, 2L))
+    df$details <- list(
+        data.frame(param = c("a", "b"), value = c(1.1, 2.2)),
+        data.frame(param = c("a", "b"), value = c(3.3, 4.4))
+    )
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("named nest: inner distinct=TRUE violation raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        details = sch_nest(
+            param = sch_character(distinct = TRUE),
+            value = sch_numeric()
+        )
+    )
+    df <- data.frame(id = c(1L, 2L))
+    df$details <- list(
+        data.frame(param = c("a", "a"), value = c(1.1, 2.2)),
+        data.frame(param = c("a", "b"), value = c(3.3, 4.4))
+    )
+    expect_error(sch_validate(schema, df), "duplicate")
+})
+
+test_that("named nest with single element: key consistency trivially passes", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        details = sch_nest(
+            param = sch_character(),
+            value = sch_numeric(),
+            .keys = "param"
+        )
+    )
+    df <- data.frame(id = 1L)
+    df$details <- list(data.frame(param = c("a", "b"), value = c(1.1, 2.2)))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("named nest: element missing key skipped, remaining inconsistency detected", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        details = sch_nest(
+            param = sch_character(),
+            value = sch_numeric(),
+            .keys = "param"
+        )
+    )
+    df <- data.frame(id = c(1L, 2L, 3L))
+    df$details <- list(
+        data.frame(param = c("a", "b"), value = c(1.1, 2.2)),
+        data.frame(value = c(3.3)),
+        data.frame(param = c("a", "c"), value = c(4.4, 5.5))
+    )
+    expect_error(sch_validate(schema, df), "inconsistent")
+})
+
+test_that("named nest: inner missing=FALSE rejects NA", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        details = sch_nest(
+            value = sch_numeric(missing = FALSE)
+        )
+    )
+    df <- data.frame(id = c(1L, 2L))
+    df$details <- list(
+        data.frame(value = c(1.0, 2.0)),
+        data.frame(value = c(3.0, NA_real_))
+    )
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_error(sch_validate(schema, df), "missing values")
+})
+
+test_that("named nest: extra inner column without sch_others raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        details = sch_nest(
+            param = sch_character()
+        )
+    )
+    df <- data.frame(id = 1L)
+    df$details <- list(data.frame(param = "a", extra_col = 99))
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_error(sch_validate(schema, df), "Unexpected")
+})
+
+test_that("named nest: zero-row elements pass", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        details = sch_nest(
+            param = sch_character(),
+            value = sch_numeric()
+        )
+    )
+    df <- data.frame(id = c(1L, 2L))
+    df$details <- list(
+        data.frame(param = character(0), value = numeric(0)),
+        data.frame(param = character(0), value = numeric(0))
+    )
+    expect_no_error(sch_validate(schema, df))
+})

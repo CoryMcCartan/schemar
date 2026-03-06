@@ -22,10 +22,9 @@ default runs all checks. Possible values:
 \item \code{"names"}: check for missing required columns and unexpected extra columns.
 \item \code{"types"}: check column types and missing-value (\code{NA}) constraints.
 \item \code{"distinct"}: check uniqueness constraints for columns marked
-\code{distinct = TRUE}. Omit this for large data frames where the check is
-expensive.
+\code{distinct = TRUE}. Relatively expensive.
 \item \code{"nesting"}: validate nested schema columns (flat and named nests),
-including key consistency.
+including key consistency. Relatively expensive.
 }}
 
 \item{call}{The environment or call used for error reporting, passed to

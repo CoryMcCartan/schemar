@@ -8,6 +8,13 @@
 \description{
 Provides developer-focused helper functions and S3 classes to ease the creation of structured subtypes of data frames which require certain columns and types to be present, and which preserve special attributes through common data frame manipulations.
 }
+\seealso{
+Useful links:
+\itemize{
+  \item \url{http://corymccartan.com/schemar/}
+}
+
+}
 \author{
 \strong{Maintainer}: Cory McCartan \email{mccartan@psu.edu} (\href{https://orcid.org/0000-0002-6251-669X}{ORCID})
 

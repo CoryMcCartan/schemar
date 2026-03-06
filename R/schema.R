@@ -125,7 +125,7 @@ sch_others <- function() {
 #' @param .keys A character vector selecting one or more column names from `...`
 #'   that serve as the key columns for the nested group.
 #' @export
-sch_nest <- function(..., .keys = character(0), .desc = NULL, distinct = FALSE) {
+sch_nest <- function(..., .keys = character(0), .desc = NULL) {
     cols = rlang::dots_list(..., .homonyms = "error", .check_assign = TRUE)
 
     if (!all(vapply(cols, inherits, FALSE, what = "sch_type"))) {
@@ -159,7 +159,6 @@ sch_nest <- function(..., .keys = character(0), .desc = NULL, distinct = FALSE) 
         desc = check_desc(.desc),
         missing = FALSE,
         required = TRUE,
-        distinct = isTRUE(distinct),
         class = c("sch_schema", "sch_type")
     )
 }
@@ -411,7 +410,6 @@ sch_custom <- function(
 }
 
 
-
 check_num <- function(x, type) {
     switch(
         type$type,
@@ -460,8 +458,12 @@ type_fns = list(
 
     factor = list(
         check = function(x, type) {
-            is.factor(x) ||
-                (!type$strict && is.character(x) && all(x %in% type$levels))
+            if (type$strict) {
+                is.factor(x) && identical(levels(x), type$levels)
+            } else {
+                (is.factor(x) || is.character(x)) &&
+                    all(x[!is.na(x)] %in% type$levels)
+            }
         },
         msg = function(type) {
             levs = cli::cli_vec(
@@ -498,9 +500,7 @@ type_fns = list(
     list_of = list(
         check = function(x, type) {
             is.list(x) &&
-                all(
-                    vapply(x, inherits, logical(1), what = type$class)
-                )
+                all(vapply(x, function(e) is.null(e) || inherits(e, type$class), logical(1)))
         },
         msg = function(type) {
             cli::format_inline("list-column with elements of type {.cls {type$class}}")
