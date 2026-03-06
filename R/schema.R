@@ -2,7 +2,7 @@
 #'
 #' Defines the structure of a single 'observation' for a structured data frame.
 #' Each column has type restrictions and may be required or optional.
-#' Schemas can be nested.
+#' Schemas support nesting relationships.
 #'
 #' @param ... Column specifications, in the form of `col_name = col_type` pairs,
 #'   where `col_type` is a call to a column type constructor listed here, such
@@ -28,6 +28,8 @@
 #'   any missing values result in an error.
 #' @param required If `TRUE`, the column must be present. If `FALSE`, the column
 #'   is optional.
+#' @param distinct If `TRUE`, the column must contain no duplicate values (after
+#'   accounting for nesting structure). If `FALSE` (the default), duplicates are allowed.
 #'
 #' @returns An object of class `sch_schema`,
 #' @examples
@@ -47,13 +49,19 @@
 #'
 #' sch_schema(
 #'     .desc = "MCMC draws",
-#'     draw = sch_integer("Draw number", bounds = c(1, Inf), closed = c(TRUE, FALSE)),
+#'     draw = sch_integer(
+#'         "Draw number",
+#'         bounds = c(1, Inf),
+#'         closed = c(TRUE, FALSE),
+#'         distinct = TRUE
+#'     ),
 #'     sch_nest(
-#'        param = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
-#'        value = sch_numeric("Parameter value"),
-#'        .keys = "param"
+#'         param = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
+#'         value = sch_numeric("Parameter value"),
+#'         .keys = "param"
 #'     )
 #' )
+#'
 #' sch_custom(
 #'    name = "even",
 #'    check = function(x, type) is.integer(x) && all(x %% 2 == 0),
@@ -138,7 +146,8 @@ format_schema_cols <- function(cols, ansi = FALSE, depth = 0L) {
                 fmt,
                 ".",
                 if (!attr(tt, "missing")) " No NAs allowed.",
-                if (!attr(tt, "required")) " [Optional]"
+                if (!attr(tt, "required")) " [Optional]",
+                if (attr(tt, "distinct")) " [Distinct]"
             )
             names(fmt) = desc_nm
             if (!is.null(names(fmt))) {
@@ -227,7 +236,7 @@ print.sch_type <- function(x, ...) {
 #' @describeIn sch_schema A placeholder for other non-required columns in a schema.
 #' @export
 sch_others <- function() {
-    structure(list(type = "other"), required = FALSE, class = "sch_type")
+    structure(list(type = "other"), required = FALSE, distinct = FALSE, class = "sch_type")
 }
 
 #' @describeIn sch_schema A set of columns that are logically nested within the
@@ -238,7 +247,7 @@ sch_others <- function() {
 #' @param .keys A character vector selecting one or more column names from `...`
 #'   that serve as the key columns for the nested group.
 #' @export
-sch_nest <- function(..., .keys=character(0), .desc = NULL) {
+sch_nest <- function(..., .keys = character(0), .desc = NULL, distinct = FALSE) {
     cols = rlang::dots_list(..., .homonyms = "error", .check_assign = TRUE)
 
     if (!all(vapply(cols, inherits, FALSE, what = "sch_type"))) {
@@ -272,6 +281,7 @@ sch_nest <- function(..., .keys=character(0), .desc = NULL) {
         desc = check_desc(.desc),
         missing = FALSE,
         required = TRUE,
+        distinct = isTRUE(distinct),
         class = c("sch_schema", "sch_type")
     )
 }
@@ -288,7 +298,8 @@ sch_numeric <- function(
     bounds = c(-Inf, Inf),
     closed = c(TRUE, TRUE),
     missing = TRUE,
-    required = TRUE
+    required = TRUE,
+    distinct = FALSE
 ) {
     check_bounds_closed(bounds, closed)
 
@@ -297,6 +308,7 @@ sch_numeric <- function(
         desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
+        distinct = isTRUE(distinct),
         class = "sch_type"
     )
 }
@@ -310,7 +322,8 @@ sch_integer <- function(
     bounds = c(-Inf, Inf),
     closed = c(TRUE, TRUE),
     missing = TRUE,
-    required = TRUE
+    required = TRUE,
+    distinct = FALSE
 ) {
     check_bounds_closed(bounds, closed)
 
@@ -319,30 +332,33 @@ sch_integer <- function(
         desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
+        distinct = isTRUE(distinct),
         class = "sch_type"
     )
 }
 
 #' @describeIn sch_schema A logical vector.
 #' @export
-sch_logical <- function(desc = NULL, missing = TRUE, required = TRUE) {
+sch_logical <- function(desc = NULL, missing = TRUE, required = TRUE, distinct = FALSE) {
     structure(
         list(type = "logical"),
         desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
+        distinct = isTRUE(distinct),
         class = "sch_type"
     )
 }
 
 #' @describeIn sch_schema A character vector.
 #' @export
-sch_character <- function(desc = NULL, missing = TRUE, required = TRUE) {
+sch_character <- function(desc = NULL, missing = TRUE, required = TRUE, distinct = FALSE) {
     structure(
         list(type = "character"),
         desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
+        distinct = isTRUE(distinct),
         class = "sch_type"
     )
 }
@@ -357,7 +373,8 @@ sch_factor <- function(
     levels,
     strict = TRUE,
     missing = TRUE,
-    required = TRUE
+    required = TRUE,
+    distinct = FALSE
 ) {
     if (!is.character(levels)) {
         rlang::abort("`levels` must be a character vector.")
@@ -367,6 +384,7 @@ sch_factor <- function(
         desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
+        distinct = isTRUE(distinct),
         class = "sch_type"
     )
 }
@@ -379,7 +397,8 @@ sch_date <- function(
     bounds = c(as.Date(-Inf), as.Date(Inf)),
     closed = c(FALSE, FALSE),
     missing = TRUE,
-    required = TRUE
+    required = TRUE,
+    distinct = FALSE
 ) {
     check_bounds_closed(bounds, closed)
 
@@ -388,6 +407,7 @@ sch_date <- function(
         desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
+        distinct = isTRUE(distinct),
         class = "sch_type"
     )
 }
@@ -399,7 +419,8 @@ sch_datetime <- function(
     bounds = c(as.POSIXct(-Inf), as.POSIXct(Inf)),
     closed = c(FALSE, FALSE),
     missing = TRUE,
-    required = TRUE
+    required = TRUE,
+    distinct = FALSE
 ) {
     check_bounds_closed(bounds, closed)
 
@@ -408,6 +429,7 @@ sch_datetime <- function(
         desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
+        distinct = isTRUE(distinct),
         class = "sch_type"
     )
 }
@@ -416,24 +438,26 @@ sch_datetime <- function(
 #' @param class A character vector of class names.
 #'
 #' @export
-sch_inherits <- function(desc = NULL, class, missing = TRUE, required = TRUE) {
+sch_inherits <- function(desc = NULL, class, missing = TRUE, required = TRUE, distinct = FALSE) {
     structure(
         list(type = "inherits", class = as.character(class)),
         desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
+        distinct = isTRUE(distinct),
         class = "sch_type"
     )
 }
 
 #' @describeIn sch_schema A vector satisfying `inherits(_, class)`.
 #' @export
-sch_list_of <- function(desc = NULL, class, missing = TRUE, required = TRUE) {
+sch_list_of <- function(desc = NULL, class, missing = TRUE, required = TRUE, distinct = FALSE) {
     structure(
         list(type = "list_of", class = as.character(class)),
         desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
+        distinct = isTRUE(distinct),
         class = "sch_type"
     )
 }
@@ -461,7 +485,8 @@ sch_custom <- function(
     coerce,
     ...,
     missing = TRUE,
-    required = TRUE
+    required = TRUE,
+    distinct = FALSE
 ) {
     if (!is.character(name) || length(name) != 1) {
         rlang::abort("{.arg name} must be a single string.")
@@ -502,6 +527,7 @@ sch_custom <- function(
         desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
+        distinct = isTRUE(distinct),
         class = "sch_type"
     )
 }

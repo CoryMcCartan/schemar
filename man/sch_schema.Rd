@@ -20,14 +20,15 @@ sch_schema(..., .desc = NULL)
 
 sch_others()
 
-sch_nest(..., .keys = character(0), .desc = NULL)
+sch_nest(..., .keys = character(0), .desc = NULL, distinct = FALSE)
 
 sch_numeric(
   desc = NULL,
   bounds = c(-Inf, Inf),
   closed = c(TRUE, TRUE),
   missing = TRUE,
-  required = TRUE
+  required = TRUE,
+  distinct = FALSE
 )
 
 sch_integer(
@@ -35,21 +36,30 @@ sch_integer(
   bounds = c(-Inf, Inf),
   closed = c(TRUE, TRUE),
   missing = TRUE,
-  required = TRUE
+  required = TRUE,
+  distinct = FALSE
 )
 
-sch_logical(desc = NULL, missing = TRUE, required = TRUE)
+sch_logical(desc = NULL, missing = TRUE, required = TRUE, distinct = FALSE)
 
-sch_character(desc = NULL, missing = TRUE, required = TRUE)
+sch_character(desc = NULL, missing = TRUE, required = TRUE, distinct = FALSE)
 
-sch_factor(desc = NULL, levels, strict = TRUE, missing = TRUE, required = TRUE)
+sch_factor(
+  desc = NULL,
+  levels,
+  strict = TRUE,
+  missing = TRUE,
+  required = TRUE,
+  distinct = FALSE
+)
 
 sch_date(
   desc = NULL,
   bounds = c(as.Date(-Inf), as.Date(Inf)),
   closed = c(FALSE, FALSE),
   missing = TRUE,
-  required = TRUE
+  required = TRUE,
+  distinct = FALSE
 )
 
 sch_datetime(
@@ -57,12 +67,25 @@ sch_datetime(
   bounds = c(as.POSIXct(-Inf), as.POSIXct(Inf)),
   closed = c(FALSE, FALSE),
   missing = TRUE,
-  required = TRUE
+  required = TRUE,
+  distinct = FALSE
 )
 
-sch_inherits(desc = NULL, class, missing = TRUE, required = TRUE)
+sch_inherits(
+  desc = NULL,
+  class,
+  missing = TRUE,
+  required = TRUE,
+  distinct = FALSE
+)
 
-sch_list_of(desc = NULL, class, missing = TRUE, required = TRUE)
+sch_list_of(
+  desc = NULL,
+  class,
+  missing = TRUE,
+  required = TRUE,
+  distinct = FALSE
+)
 
 sch_custom(
   name,
@@ -72,7 +95,8 @@ sch_custom(
   coerce,
   ...,
   missing = TRUE,
-  required = TRUE
+  required = TRUE,
+  distinct = FALSE
 )
 }
 \arguments{
@@ -94,6 +118,9 @@ Trailing commas are permitted.}
 
 \item{.keys}{A character vector selecting one or more column names from \code{...}
 that serve as the key columns for the nested group.}
+
+\item{distinct}{If \code{TRUE}, the column must contain no duplicate values (after
+accounting for nesting structure). If \code{FALSE} (the default), duplicates are allowed.}
 
 \item{desc, .desc}{A description of the column for consumers of the schema.
 The type contraints will be described separately and do not need to be
@@ -138,7 +165,7 @@ An object of class \code{sch_schema},
 \description{
 Defines the structure of a single 'observation' for a structured data frame.
 Each column has type restrictions and may be required or optional.
-Schemas can be nested.
+Schemas support nesting relationships.
 }
 \section{Functions}{
 \itemize{
@@ -195,13 +222,19 @@ sch_schema(
 
 sch_schema(
     .desc = "MCMC draws",
-    draw = sch_integer("Draw number", bounds = c(1, Inf), closed = c(TRUE, FALSE)),
+    draw = sch_integer(
+        "Draw number",
+        bounds = c(1, Inf),
+        closed = c(TRUE, FALSE),
+        distinct = TRUE
+    ),
     sch_nest(
-       param = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
-       value = sch_numeric("Parameter value"),
-       .keys = "param"
+        param = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
+        value = sch_numeric("Parameter value"),
+        .keys = "param"
     )
 )
+
 sch_custom(
    name = "even",
    check = function(x, type) is.integer(x) && all(x \%\% 2 == 0),

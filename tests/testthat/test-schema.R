@@ -638,3 +638,103 @@ test_that("print.sch_schema() with multiple levels of nesting works", {
         expect_true(item_indent > group_indent)
     }
 })
+
+# Distinct argument tests -----------------------------------------------
+
+test_that("All column types default distinct to FALSE", {
+    expect_false(attr(sch_numeric(), "distinct"))
+    expect_false(attr(sch_integer(), "distinct"))
+    expect_false(attr(sch_logical(), "distinct"))
+    expect_false(attr(sch_character(), "distinct"))
+    expect_false(attr(sch_factor(levels = c("a", "b")), "distinct"))
+    expect_false(attr(sch_date(), "distinct"))
+    expect_false(attr(sch_datetime(), "distinct"))
+    expect_false(attr(sch_inherits(class = "myClass"), "distinct"))
+    expect_false(attr(sch_list_of(class = "data.frame"), "distinct"))
+    expect_false(attr(sch_custom(name = "test", check = function(x, type) TRUE, msg = function(type) "test", coerce = function(x, type) x), "distinct"))
+    expect_false(attr(sch_others(), "distinct"))
+})
+
+test_that("distinct = TRUE is stored as attribute", {
+    x <- sch_numeric(distinct = TRUE)
+    expect_true(attr(x, "distinct"))
+
+    y <- sch_character(distinct = TRUE)
+    expect_true(attr(y, "distinct"))
+
+    z <- sch_factor(levels = c("a", "b"), distinct = TRUE)
+    expect_true(attr(z, "distinct"))
+})
+
+test_that("distinct = FALSE explicitly is stored as attribute", {
+    x <- sch_numeric(distinct = FALSE)
+    expect_false(attr(x, "distinct"))
+})
+
+test_that("sch_nest() supports distinct argument", {
+    x <- sch_nest(
+        id = sch_integer(),
+        value = sch_numeric(),
+        distinct = FALSE
+    )
+    expect_false(attr(x, "distinct"))
+
+    y <- sch_nest(
+        id = sch_integer(),
+        value = sch_numeric(),
+        distinct = TRUE
+    )
+    expect_true(attr(y, "distinct"))
+})
+
+test_that("[Distinct] flag appears in schema print output for distinct columns", {
+    x <- sch_schema(
+        id = sch_integer(distinct = TRUE),
+        name = sch_character(),
+        email = sch_character(distinct = TRUE)
+    )
+    output <- capture.output(print(x))
+    output_text <- paste(output, collapse = "\n")
+    
+    # Check that [Distinct] flag appears in output
+    expect_match(output_text, "\\[Distinct\\]")
+})
+
+test_that("[Distinct] flag does not appear for non-distinct columns", {
+    x <- sch_schema(
+        id = sch_integer(),
+        name = sch_character()
+    )
+    output <- capture.output(print(x))
+    output_text <- paste(output, collapse = "\n")
+    
+    # [Distinct] flag should not appear
+    expect_false(grepl("\\[Distinct\\]", output_text))
+})
+
+test_that("[Distinct] and [Optional] flags work together", {
+    x <- sch_schema(
+        id = sch_integer(distinct = TRUE, required = FALSE),
+        name = sch_character(distinct = TRUE)
+    )
+    output <- capture.output(print(x))
+    output_text <- paste(output, collapse = "\n")
+    
+    # Both flags should appear
+    expect_match(output_text, "\\[Distinct\\]")
+    expect_match(output_text, "\\[Optional\\]")
+})
+
+test_that("Nested schema columns show [Distinct] flag", {
+    x <- sch_schema(
+        id = sch_integer(),
+        details = sch_nest(
+            name = sch_character(distinct = TRUE),
+            value = sch_numeric()
+        )
+    )
+    output <- capture.output(print(x))
+    output_text <- paste(output, collapse = "\n")
+    
+    expect_match(output_text, "\\[Distinct\\]")
+})
