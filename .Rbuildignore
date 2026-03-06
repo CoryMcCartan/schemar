@@ -1,3 +1,9 @@
 ^LICENSE\.md$
 ^\.vscode$
 ^[.]?air[.]toml$
+^codecov\.yml$
+^README\.Rmd$
+^\.github$
+^_pkgdown\.yml$
+^docs$
+^pkgdown$

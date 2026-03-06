@@ -1,0 +1,26 @@
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+# schemar
+
+<!-- badges: start -->
+
+[![Codecov test
+coverage](https://codecov.io/gh/CoryMcCartan/schemar/graph/badge.svg)](https://app.codecov.io/gh/CoryMcCartan/schemar)
+[![R-CMD-check](https://github.com/CoryMcCartan/schemar/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/CoryMcCartan/schemar/actions/workflows/R-CMD-check.yaml)
+<!-- badges: end -->
+
+Provides developer-focused helper functions and S3 classes to ease the
+creation of structured subtypes of data frames which require certain
+columns and types to be present, and which preserve special attributes
+through common data frame manipulations.
+
+## Installation
+
+You can install the development version of schemar from
+[GitHub](https://github.com/) with:
+
+``` r
+# install.packages("pak")
+pak::pak("CoryMcCartan/schemar")
+```
