@@ -21,7 +21,7 @@
 #'   Trailing commas are permitted.
 #' @param desc,.desc A description of the column for consumers of the schema.
 #'   The type contraints will be described separately and do not need to be
-#'   included in the description.  For example for "age", the descriptoin might
+#'   included in the description.  For example for "age", the description might
 #'   be "Age of the patient in years", not "Non-negative integer representing
 #'   the age of the patient in years".
 #' @param missing If `TRUE`, the column may be contain missing values. Otherwise,
@@ -29,7 +29,7 @@
 #' @param required If `TRUE`, the column must be present. If `FALSE`, the column
 #'   is optional.
 #' @param distinct If `TRUE`, the column must contain no duplicate values (after
-#'   accounting for nesting structure). If `FALSE` (the default), duplicates are allowed.
+#'   accounting for nesting structure).
 #'
 #' @returns An object of class `sch_schema`,
 #' @examples
@@ -103,6 +103,447 @@ sch_schema <- function(..., .desc = NULL) {
         class = c("sch_schema", "sch_type")
     )
 }
+
+
+#' @describeIn sch_schema A placeholder for other non-required columns in a schema.
+#' @export
+sch_others <- function() {
+    structure(
+        list(type = "other"),
+        missing = NA,
+        required = FALSE,
+        distinct = FALSE,
+        class = "sch_type"
+    )
+}
+
+#' @describeIn sch_schema A set of columns that are logically nested within the
+#'   outer schema. If given a name in the outer `sch_schema()`, the columns are
+#'   stored as a nested data frame. If unnamed, the columns are stored flat
+#'   (adjacent to the outer columns). The unique combinations of rows defined
+#'   by `.keys` must repeat identically across groups defined by the outer columns.
+#' @param .keys A character vector selecting one or more column names from `...`
+#'   that serve as the key columns for the nested group.
+#' @export
+sch_nest <- function(..., .keys = character(0), .desc = NULL, distinct = FALSE) {
+    cols = rlang::dots_list(..., .homonyms = "error", .check_assign = TRUE)
+
+    if (!all(vapply(cols, inherits, FALSE, what = "sch_type"))) {
+        rlang::abort("All columns must be specified using a column type constructor.")
+    }
+    has_other = any(vapply(cols, function(x) x$type == "other", FALSE))
+    if (has_other) {
+        rlang::abort("{.fn sch_others()} is not allowed inside {.fn sch_nest()}.")
+    }
+
+    is_unnamed_nest = vapply(cols, function(x) x$type == "schema_nest", FALSE)
+    named_cols = cols[!is_unnamed_nest]
+    if (length(named_cols) > 0 && !rlang::is_named(named_cols)) {
+        rlang::abort("All columns must be named.")
+    }
+    nms = names(named_cols)
+    if (anyDuplicated(nms[nzchar(nms)]) > 0) {
+        rlang::abort("Column names must be unique.")
+    }
+
+    if (!is.character(.keys)) {
+        rlang::abort("{.arg .keys} must be a character vector.")
+    }
+    bad_keys = setdiff(.keys, names(cols)[!is_unnamed_nest])
+    if (length(bad_keys) > 0) {
+        rlang::abort("{.arg .keys} must reference column names: {.field {bad_keys}} not found.")
+    }
+
+    structure(
+        list(type = "schema_nest", cols = cols, keys = .keys),
+        desc = check_desc(.desc),
+        missing = FALSE,
+        required = TRUE,
+        distinct = isTRUE(distinct),
+        class = c("sch_schema", "sch_type")
+    )
+}
+
+#' @describeIn sch_schema A numeric vector that is optionally constrained to be
+#'   within a certain range.
+#'
+#' @param bounds Length-two vector `c(min, max)` specifying the allowed range of values.
+#' @param closed Length-two logical vector specifying whether the bounds are
+#'   closed (inclusive) or open (exclusive).
+#' @export
+sch_numeric <- function(
+    desc = NULL,
+    bounds = c(-Inf, Inf),
+    closed = c(TRUE, TRUE),
+    missing = TRUE,
+    required = TRUE,
+    distinct = FALSE
+) {
+    check_bounds_closed(bounds, closed)
+
+    structure(
+        list(type = "numeric", bounds = bounds, closed = closed),
+        desc = check_desc(desc),
+        missing = isTRUE(missing),
+        required = isTRUE(required),
+        distinct = isTRUE(distinct),
+        class = "sch_type"
+    )
+}
+
+
+#' @describeIn sch_schema An integer vector that is optionally constrained to be
+#'   within a certain range.
+#' @export
+sch_integer <- function(
+    desc = NULL,
+    bounds = c(-Inf, Inf),
+    closed = c(TRUE, TRUE),
+    missing = TRUE,
+    required = TRUE,
+    distinct = FALSE
+) {
+    check_bounds_closed(bounds, closed)
+
+    structure(
+        list(type = "integer", bounds = bounds, closed = closed),
+        desc = check_desc(desc),
+        missing = isTRUE(missing),
+        required = isTRUE(required),
+        distinct = isTRUE(distinct),
+        class = "sch_type"
+    )
+}
+
+#' @describeIn sch_schema A logical vector.
+#' @export
+sch_logical <- function(desc = NULL, missing = TRUE, required = TRUE, distinct = FALSE) {
+    structure(
+        list(type = "logical"),
+        desc = check_desc(desc),
+        missing = isTRUE(missing),
+        required = isTRUE(required),
+        distinct = isTRUE(distinct),
+        class = "sch_type"
+    )
+}
+
+#' @describeIn sch_schema A character vector.
+#' @export
+sch_character <- function(desc = NULL, missing = TRUE, required = TRUE, distinct = FALSE) {
+    structure(
+        list(type = "character"),
+        desc = check_desc(desc),
+        missing = isTRUE(missing),
+        required = isTRUE(required),
+        distinct = isTRUE(distinct),
+        class = "sch_type"
+    )
+}
+
+#' @describeIn sch_schema A factor with specified levels.
+#' @param levels A character vector of factor levels.
+#' @param strict If `TRUE`, only factors with the specified levels are accepted.
+#'   If `FALSE`, character vectors with the specified levels are also accepted.
+#' @export
+sch_factor <- function(
+    desc = NULL,
+    levels,
+    strict = TRUE,
+    missing = TRUE,
+    required = TRUE,
+    distinct = FALSE
+) {
+    if (!is.character(levels)) {
+        rlang::abort("`levels` must be a character vector.")
+    }
+    structure(
+        list(type = "factor", levels = levels, strict = isTRUE(strict)),
+        desc = check_desc(desc),
+        missing = isTRUE(missing),
+        required = isTRUE(required),
+        distinct = isTRUE(distinct),
+        class = "sch_type"
+    )
+}
+
+#' @describeIn sch_schema A Date vector that is optionally constrained to be
+#'   within a certain range.
+#' @export
+sch_date <- function(
+    desc = NULL,
+    bounds = c(as.Date(-Inf), as.Date(Inf)),
+    closed = c(FALSE, FALSE),
+    missing = TRUE,
+    required = TRUE,
+    distinct = FALSE
+) {
+    check_bounds_closed(bounds, closed)
+
+    structure(
+        list(type = "date", bounds = bounds, closed = closed),
+        desc = check_desc(desc),
+        missing = isTRUE(missing),
+        required = isTRUE(required),
+        distinct = isTRUE(distinct),
+        class = "sch_type"
+    )
+}
+#' @describeIn sch_schema A POSIXct vector that is optionally constrained to be
+#'   within a certain range.
+#' @export
+sch_datetime <- function(
+    desc = NULL,
+    bounds = c(as.POSIXct(-Inf), as.POSIXct(Inf)),
+    closed = c(FALSE, FALSE),
+    missing = TRUE,
+    required = TRUE,
+    distinct = FALSE
+) {
+    check_bounds_closed(bounds, closed)
+
+    structure(
+        list(type = "datetime", bounds = bounds, closed = closed),
+        desc = check_desc(desc),
+        missing = isTRUE(missing),
+        required = isTRUE(required),
+        distinct = isTRUE(distinct),
+        class = "sch_type"
+    )
+}
+
+#' @describeIn sch_schema A list-column whose elements satisfy `inherits(_, class)`.
+#' @param class A character vector of class names.
+#'
+#' @export
+sch_inherits <- function(desc = NULL, class, missing = TRUE, required = TRUE, distinct = FALSE) {
+    structure(
+        list(type = "inherits", class = as.character(class)),
+        desc = check_desc(desc),
+        missing = isTRUE(missing),
+        required = isTRUE(required),
+        distinct = isTRUE(distinct),
+        class = "sch_type"
+    )
+}
+
+#' @describeIn sch_schema A vector satisfying `inherits(_, class)`.
+#' @export
+sch_list_of <- function(desc = NULL, class, missing = TRUE, required = TRUE, distinct = FALSE) {
+    structure(
+        list(type = "list_of", class = as.character(class)),
+        desc = check_desc(desc),
+        missing = isTRUE(missing),
+        required = isTRUE(required),
+        distinct = isTRUE(distinct),
+        class = "sch_type"
+    )
+}
+
+#' @describeIn sch_schema A custom type defined by user-provided check, error,
+#'   and coercion functions. Additional named values to be stored along with the
+#'   type specification may be passed via `...` and will be available to the
+#'   check, error, and coercion functions.
+#' @param name A name for the custom type.
+#' @param check A two-argument function that checks whether an object satisfies
+#'   the type. The first argument is the object to check, and the second is the
+#'   full type specification.
+#' @param msg A one-argument function that generates a descriptive message
+#'   about the type when passed the type object itself. Should not end with a period.
+#' @param coerce A two-argument function that attempts to coerce an object to the
+#'   type. The first argument is the object to coerce, and the second is the full
+#'   type specification.
+#'
+#' @export
+sch_custom <- function(
+    name,
+    desc = NULL,
+    check,
+    msg,
+    coerce,
+    ...,
+    missing = TRUE,
+    required = TRUE,
+    distinct = FALSE
+) {
+    if (!is.character(name) || length(name) != 1) {
+        rlang::abort("{.arg name} must be a single string.")
+    }
+    reserved_nms = c("other", names(type_fns))
+    if (name %in% reserved_nms) {
+        rlang::abort(
+            "{.arg name} must not be one of the reserved type names: {.field {reserved_nms}}."
+        )
+    }
+    err_fn = function(arg) {
+        rlang::abort("{.arg {arg}} must be a function with two arguments: `x` and `type`.")
+    }
+    if (!is.function(check) || length(formals(check)) != 2) {
+        err_fn("check")
+    }
+    if (!is.function(msg) || length(formals(msg)) != 1) {
+        err_fn("msg")
+    }
+    if (!is.function(coerce) || length(formals(coerce)) != 2) {
+        err_fn("coerce")
+    }
+
+    extras = rlang::list2(...)
+    if (length(extras) > 0 && !rlang::is_named(extras)) {
+        rlang::abort("All additional arguments must be named.")
+    }
+
+    structure(
+        rlang::list2(
+            type = "custom",
+            name = name,
+            check = check,
+            msg = msg,
+            coerce = coerce,
+            !!!extras
+        ),
+        desc = check_desc(desc),
+        missing = isTRUE(missing),
+        required = isTRUE(required),
+        distinct = isTRUE(distinct),
+        class = "sch_type"
+    )
+}
+
+
+
+check_num <- function(x, type) {
+    switch(
+        type$type,
+        numeric = is.numeric(x),
+        integer = is.integer(x),
+        date = inherits(x, "Date"),
+        datetime = inherits(x, "POSIXct")
+    ) &&
+        (if (type$closed[1]) {
+            all(x >= type$bounds[1], na.rm = TRUE)
+        } else {
+            all(x > type$bounds[1], na.rm = TRUE)
+        }) &&
+        (if (type$closed[2]) {
+            all(x <= type$bounds[2], na.rm = TRUE)
+        } else {
+            all(x < type$bounds[2], na.rm = TRUE)
+        })
+}
+msg_num <- function(type) {
+    out = paste0(type$type, " vector")
+    if (!all(is.infinite(type$bounds))) {
+        out = paste0(
+            out,
+            " with values in ",
+            if (type$closed[1]) "[" else "(",
+            type$bounds[1],
+            ", ",
+            type$bounds[2],
+            if (type$closed[2]) "]" else ")"
+        )
+    }
+    out
+}
+
+type_fns = list(
+    numeric = list(check = check_num, msg = msg_num, coerce = as.numeric),
+    integer = list(check = check_num, msg = msg_num, coerce = as.integer),
+    date = list(check = check_num, msg = msg_num, coerce = as.Date),
+    datetime = list(check = check_num, msg = msg_num, coerce = as.POSIXct),
+    logical = list(
+        check = function(x, type) is.logical(x),
+        msg = function(type) "logical vector",
+        coerce = as.logical
+    ),
+
+    factor = list(
+        check = function(x, type) {
+            is.factor(x) ||
+                (!type$strict && is.character(x) && all(x %in% type$levels))
+        },
+        msg = function(type) {
+            levs = cli::cli_vec(
+                type$levels,
+                list(
+                    "vec-trunc" = 10,
+                    "vec-last" = ", or "
+                )
+            )
+            cli::format_inline("factor; one of {.strong {levs}}")
+        },
+        coerce = function(x, type) {
+            factor(x, levels = type$levels)
+        }
+    ),
+
+    character = list(
+        check = function(x, type) is.character(x),
+        msg = function(type) "character vector",
+        coerce = as.character
+    ),
+
+    inherits = list(
+        check = function(x, type) {
+            inherits(x, type$class)
+        },
+        msg = function(type) {
+            cli::format_inline("vector inheriting from {.cls {type$class}}")
+        },
+        coerce = function(x, type) {
+            methods::as(x, type$class)
+        }
+    ),
+    list_of = list(
+        check = function(x, type) {
+            is.list(x) &&
+                all(
+                    vapply(x, inherits, logical(1), what = type$class)
+                )
+        },
+        msg = function(type) {
+            cli::format_inline("list-column with elements of type {.cls {type$class}}")
+        },
+        coerce = function(x, type) {
+            lapply(x, function(y) {
+                methods::as(y, type$class)
+            })
+        }
+    ),
+
+    custom = list(
+        check = function(x, type) {
+            type$check(x, type)
+        },
+        msg = function(type) {
+            type$msg(type)
+        },
+        coerce = function(x, type) {
+            type$coerce(x, type)
+        }
+    )
+)
+
+
+check_bounds_closed = function(bounds, closed) {
+    assert(length(bounds) == 2, "{.arg bounds} must be a length-two vector.")
+    assert(
+        length(closed) == 2 && is.logical(closed),
+        "{.arg closed} must be a length-two logical vector."
+    )
+}
+check_desc = function(desc) {
+    if (is.null(desc)) {
+        NULL
+    } else if (is.character(desc) && length(desc) == 1) {
+        desc
+    } else {
+        rlang::abort("{.arg desc} must be NULL or a single string.", call = parent.frame())
+    }
+}
+
+# Printing -----------
 
 # Internal helper: recursively formats schema columns, tracking nesting depth.
 # Returns a list(out, nms, levels).
@@ -229,322 +670,5 @@ print.sch_type <- function(x, ...) {
         cat(names(fmt), "\n", fmt, "\n", sep = "")
     } else {
         cat(fmt, "\n", sep = "")
-    }
-}
-
-
-#' @describeIn sch_schema A placeholder for other non-required columns in a schema.
-#' @export
-sch_others <- function() {
-    structure(list(type = "other"), required = FALSE, distinct = FALSE, class = "sch_type")
-}
-
-#' @describeIn sch_schema A set of columns that are logically nested within the
-#'   outer schema. If given a name in the outer `sch_schema()`, the columns are
-#'   stored as a nested data frame. If unnamed, the columns are stored flat
-#'   (adjacent to the outer columns). The unique combinations of rows defined
-#'   by `.keys` must repeat identically across groups defined by the outer columns.
-#' @param .keys A character vector selecting one or more column names from `...`
-#'   that serve as the key columns for the nested group.
-#' @export
-sch_nest <- function(..., .keys = character(0), .desc = NULL, distinct = FALSE) {
-    cols = rlang::dots_list(..., .homonyms = "error", .check_assign = TRUE)
-
-    if (!all(vapply(cols, inherits, FALSE, what = "sch_type"))) {
-        rlang::abort("All columns must be specified using a column type constructor.")
-    }
-    has_other = any(vapply(cols, function(x) x$type == "other", FALSE))
-    if (has_other) {
-        rlang::abort("{.fn sch_others()} is not allowed inside {.fn sch_nest()}.")
-    }
-
-    is_unnamed_nest = vapply(cols, function(x) x$type == "schema_nest", FALSE)
-    named_cols = cols[!is_unnamed_nest]
-    if (length(named_cols) > 0 && !rlang::is_named(named_cols)) {
-        rlang::abort("All columns must be named.")
-    }
-    nms = names(named_cols)
-    if (anyDuplicated(nms[nzchar(nms)]) > 0) {
-        rlang::abort("Column names must be unique.")
-    }
-
-    if (!is.character(.keys)) {
-        rlang::abort("{.arg .keys} must be a character vector.")
-    }
-    bad_keys = setdiff(.keys, names(cols)[!is_unnamed_nest])
-    if (length(bad_keys) > 0) {
-        rlang::abort("{.arg .keys} must reference column names: {.field {bad_keys}} not found.")
-    }
-
-    structure(
-        list(type = "schema_nest", cols = cols, keys = .keys),
-        desc = check_desc(.desc),
-        missing = FALSE,
-        required = TRUE,
-        distinct = isTRUE(distinct),
-        class = c("sch_schema", "sch_type")
-    )
-}
-
-#' @describeIn sch_schema A numeric vector that is optionally constrained to be
-#'   within a certain range.
-#'
-#' @param bounds, Length-two vector `c(min, max)` specifying the allowed range of values.
-#' @param closed Length-two logical vector specifying whether the bounds are
-#'   closed (inclusive) or open (exclusive).
-#' @export
-sch_numeric <- function(
-    desc = NULL,
-    bounds = c(-Inf, Inf),
-    closed = c(TRUE, TRUE),
-    missing = TRUE,
-    required = TRUE,
-    distinct = FALSE
-) {
-    check_bounds_closed(bounds, closed)
-
-    structure(
-        list(type = "numeric", bounds = bounds, closed = closed),
-        desc = check_desc(desc),
-        missing = isTRUE(missing),
-        required = isTRUE(required),
-        distinct = isTRUE(distinct),
-        class = "sch_type"
-    )
-}
-
-
-#' @describeIn sch_schema An integer vector that is optionally constrained to be
-#'   within a certain range.
-#' @export
-sch_integer <- function(
-    desc = NULL,
-    bounds = c(-Inf, Inf),
-    closed = c(TRUE, TRUE),
-    missing = TRUE,
-    required = TRUE,
-    distinct = FALSE
-) {
-    check_bounds_closed(bounds, closed)
-
-    structure(
-        list(type = "integer", bounds = bounds, closed = closed),
-        desc = check_desc(desc),
-        missing = isTRUE(missing),
-        required = isTRUE(required),
-        distinct = isTRUE(distinct),
-        class = "sch_type"
-    )
-}
-
-#' @describeIn sch_schema A logical vector.
-#' @export
-sch_logical <- function(desc = NULL, missing = TRUE, required = TRUE, distinct = FALSE) {
-    structure(
-        list(type = "logical"),
-        desc = check_desc(desc),
-        missing = isTRUE(missing),
-        required = isTRUE(required),
-        distinct = isTRUE(distinct),
-        class = "sch_type"
-    )
-}
-
-#' @describeIn sch_schema A character vector.
-#' @export
-sch_character <- function(desc = NULL, missing = TRUE, required = TRUE, distinct = FALSE) {
-    structure(
-        list(type = "character"),
-        desc = check_desc(desc),
-        missing = isTRUE(missing),
-        required = isTRUE(required),
-        distinct = isTRUE(distinct),
-        class = "sch_type"
-    )
-}
-
-#' @describeIn sch_schema A factor with specified levels.
-#' @param levels A character vector of factor levels.
-#' @param strict If `TRUE`, only factors with the specified levels are accepted.
-#'   If `FALSE`, character vectors with the specified levels are also accepted.
-#' @export
-sch_factor <- function(
-    desc = NULL,
-    levels,
-    strict = TRUE,
-    missing = TRUE,
-    required = TRUE,
-    distinct = FALSE
-) {
-    if (!is.character(levels)) {
-        rlang::abort("`levels` must be a character vector.")
-    }
-    structure(
-        list(type = "factor", levels = levels),
-        desc = check_desc(desc),
-        missing = isTRUE(missing),
-        required = isTRUE(required),
-        distinct = isTRUE(distinct),
-        class = "sch_type"
-    )
-}
-
-#' @describeIn sch_schema A Date vector that is optionally constrained to be
-#'   within a certain range.
-#' @export
-sch_date <- function(
-    desc = NULL,
-    bounds = c(as.Date(-Inf), as.Date(Inf)),
-    closed = c(FALSE, FALSE),
-    missing = TRUE,
-    required = TRUE,
-    distinct = FALSE
-) {
-    check_bounds_closed(bounds, closed)
-
-    structure(
-        list(type = "date", bounds = bounds, closed = closed),
-        desc = check_desc(desc),
-        missing = isTRUE(missing),
-        required = isTRUE(required),
-        distinct = isTRUE(distinct),
-        class = "sch_type"
-    )
-}
-#' @describeIn sch_schema A POSIXct vector that is optionally constrained to be
-#'   within a certain range.
-#' @export
-sch_datetime <- function(
-    desc = NULL,
-    bounds = c(as.POSIXct(-Inf), as.POSIXct(Inf)),
-    closed = c(FALSE, FALSE),
-    missing = TRUE,
-    required = TRUE,
-    distinct = FALSE
-) {
-    check_bounds_closed(bounds, closed)
-
-    structure(
-        list(type = "datetime", bounds = bounds, closed = closed),
-        desc = check_desc(desc),
-        missing = isTRUE(missing),
-        required = isTRUE(required),
-        distinct = isTRUE(distinct),
-        class = "sch_type"
-    )
-}
-
-#' @describeIn sch_schema A list-column whose elements satisfy `inherits(_, class)`.
-#' @param class A character vector of class names.
-#'
-#' @export
-sch_inherits <- function(desc = NULL, class, missing = TRUE, required = TRUE, distinct = FALSE) {
-    structure(
-        list(type = "inherits", class = as.character(class)),
-        desc = check_desc(desc),
-        missing = isTRUE(missing),
-        required = isTRUE(required),
-        distinct = isTRUE(distinct),
-        class = "sch_type"
-    )
-}
-
-#' @describeIn sch_schema A vector satisfying `inherits(_, class)`.
-#' @export
-sch_list_of <- function(desc = NULL, class, missing = TRUE, required = TRUE, distinct = FALSE) {
-    structure(
-        list(type = "list_of", class = as.character(class)),
-        desc = check_desc(desc),
-        missing = isTRUE(missing),
-        required = isTRUE(required),
-        distinct = isTRUE(distinct),
-        class = "sch_type"
-    )
-}
-
-#' @describeIn sch_schema A custom type defined by user-provided check, error,
-#'   and coercion functions. Additional Additional named values to be stored
-#'   along with the type specification may be passed via `...` and will be available
-#'   to the check, error, and coercion functions.
-#' @param name A name for the custom type.
-#' @param check A two-argument function that checks whether an object satisfies
-#'   the type. The first argument is the object to check, and the second is the
-#'   full type specification.
-#' @param msg A one-argument function that generates a descriptive message
-#'   about the type when passed the type object itself. Should not end with a period.
-#' @param coerce A two-argument function that attempts to coerce an object to the
-#'   type. The first argument is the object to coerce, and the second is the full
-#'   type specification.
-#'
-#' @export
-sch_custom <- function(
-    name,
-    desc = NULL,
-    check,
-    msg,
-    coerce,
-    ...,
-    missing = TRUE,
-    required = TRUE,
-    distinct = FALSE
-) {
-    if (!is.character(name) || length(name) != 1) {
-        rlang::abort("{.arg name} must be a single string.")
-    }
-    reserved_nms = c("other", names(type_fns))
-    if (name %in% reserved_nms) {
-        rlang::abort(
-            "{.arg name} must not be one of the reserved type names: {.field {reserved_nms}}."
-        )
-    }
-    err_fn = function(arg) {
-        rlang::abort("{.arg {arg}} must be a function with two arguments: `x` and `type`.")
-    }
-    if (!is.function(check) || length(formals(check)) != 2) {
-        err_fn("check")
-    }
-    if (!is.function(msg) || length(formals(msg)) != 1) {
-        err_fn("msg")
-    }
-    if (!is.function(coerce) || length(formals(coerce)) != 2) {
-        err_fn("coerce")
-    }
-
-    extras = rlang::list2(...)
-    if (length(extras) > 0 && !rlang::is_named(extras)) {
-        rlang::abort("All additional arguments must be named.")
-    }
-
-    structure(
-        rlang::list2(
-            type = "custom",
-            name = name,
-            check = check,
-            msg = msg,
-            coerce = coerce,
-            !!!extras
-        ),
-        desc = check_desc(desc),
-        missing = isTRUE(missing),
-        required = isTRUE(required),
-        distinct = isTRUE(distinct),
-        class = "sch_type"
-    )
-}
-
-check_bounds_closed = function(bounds, closed) {
-    assert(length(bounds) == 2, "{.arg bounds} must be a length-two vector.")
-    assert(
-        length(closed) == 2 && is.logical(closed),
-        "{.arg closed} must be a length-two logical vector."
-    )
-}
-check_desc = function(desc) {
-    if (is.null(desc)) {
-        NULL
-    } else if (is.character(desc) && length(desc) == 1) {
-        desc
-    } else {
-        rlang::abort("{.arg desc} must be NULL or a single string.", call = parent.frame())
     }
 }
