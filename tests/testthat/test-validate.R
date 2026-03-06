@@ -405,6 +405,17 @@ test_that("named nest detects non-data-frame element", {
     expect_error(sch_validate(schema, df), "not a data frame")
 })
 
+test_that("named nest detects when column is not a list", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        details = sch_nest(
+            param = sch_character()
+        )
+    )
+    df <- data.frame(id = 1L, details = "not_a_list")
+    expect_error(sch_validate(schema, df), "should be a list")
+})
+
 test_that("named nest detects wrong type in inner column", {
     schema <- sch_schema(
         id = sch_integer(),

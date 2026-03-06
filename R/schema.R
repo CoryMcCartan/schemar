@@ -410,6 +410,8 @@ sch_custom <- function(
 }
 
 
+# these are covered but covr doesn't recognize them
+# nocov start
 check_num <- function(x, type) {
     switch(
         type$type,
@@ -444,6 +446,7 @@ msg_num <- function(type) {
     }
     out
 }
+# nocov end
 
 type_fns = list(
     numeric = list(check = check_num, msg = msg_num, coerce = as.numeric),
