@@ -895,3 +895,168 @@ test_that("named nest: zero-row elements pass", {
     )
     expect_no_error(sch_validate(schema, df))
 })
+
+# sch_multiple() validation ----------------------------------------------
+
+test_that("sch_multiple: valid data with sch_groups passes", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric(bounds = c(0, 1)))
+    )
+    df <- data.frame(id = 1:3, trt_a = c(0.2, 0.5, 0.8), trt_b = c(0.8, 0.5, 0.2))
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("sch_multiple: missing sch_groups attribute raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    df <- data.frame(id = 1L, trt_a = 0.5)
+    # No sch_groups attribute
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "sch_groups")
+})
+
+test_that("sch_multiple: missing group name in sch_groups raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    df <- data.frame(id = 1L, trt_a = 0.5)
+    attr(df, "sch_groups") <- list(other_group = "trt_a")
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "trt")
+})
+
+test_that("sch_multiple: empty group with required=TRUE raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric(), required = TRUE)
+    )
+    df <- data.frame(id = 1L)
+    attr(df, "sch_groups") <- list(trt = character(0))
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
+test_that("sch_multiple: empty group with required=FALSE passes", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric(), required = FALSE)
+    )
+    df <- data.frame(id = 1L)
+    attr(df, "sch_groups") <- list(trt = character(0))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("sch_multiple: group column missing from data raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    df <- data.frame(id = 1L)
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"))
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "missing")
+})
+
+test_that("sch_multiple: wrong type in group column raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    df <- data.frame(id = 1:2, trt_a = c("x", "y"), trt_b = c(0.5, 0.6))
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"))
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "wrong type")
+})
+
+test_that("sch_multiple: NA in group column with inner missing=FALSE raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric(missing = FALSE))
+    )
+    df <- data.frame(id = 1:2, trt_a = c(0.5, NA), trt_b = c(0.5, 0.5))
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"))
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "missing values")
+})
+
+test_that("sch_multiple: cross-column check passes when valid", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(
+            name = "trt",
+            type = sch_numeric(bounds = c(0, 1)),
+            check = function(x, type) {
+                row_sums <- Reduce("+", x)
+                all(abs(row_sums - 1) < 1e-9)
+            },
+            msg = function(type) "set of values summing to 1",
+            coerce = function(x, type) x
+        )
+    )
+    df <- data.frame(id = 1:2, trt_a = c(0.3, 0.6), trt_b = c(0.7, 0.4))
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("sch_multiple: cross-column check failure raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(
+            name = "trt",
+            type = sch_numeric(bounds = c(0, 1)),
+            check = function(x, type) {
+                row_sums <- Reduce("+", x)
+                all(abs(row_sums - 1) < 1e-9)
+            },
+            msg = function(type) "set of values summing to 1",
+            coerce = function(x, type) x
+        )
+    )
+    df <- data.frame(id = 1:2, trt_a = c(0.3, 0.6), trt_b = c(0.3, 0.4))
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"))
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "trt|cross")
+})
+
+test_that("sch_multiple: group columns not flagged as extra", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    df <- data.frame(id = 1L, trt_a = 0.5, trt_b = 0.5)
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("sch_multiple: multiple groups in one schema all validated", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric(bounds = c(0, 1))),
+        sch_multiple(name = "lab", type = sch_character())
+    )
+    df <- data.frame(
+        id = 1:2,
+        trt_a = c(0.4, 0.6),
+        trt_b = c(0.6, 0.4),
+        lab_x = c("a", "b"),
+        lab_y = c("c", "d")
+    )
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"), lab = c("lab_x", "lab_y"))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("sch_multiple: check='names' detects missing sch_groups", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    df <- data.frame(id = 1L)
+    expect_error(
+        sch_validate(schema, df, check = "names"),
+        class = "sch_validation_error"
+    )
+})

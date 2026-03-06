@@ -817,3 +817,183 @@ test_that("list_of with all valid elements passes", {
     df <- data.frame(x = I(list(data.frame(a = 1), data.frame(a = 2))))
     expect_no_error(sch_validate(schema, df))
 })
+
+# sch_multiple() ---------------------------------------------------------
+
+test_that("sch_multiple() returns sch_type with type schema_multiple", {
+    x <- sch_multiple(name = "trt", type = sch_numeric())
+    expect_s3_class(x, "sch_type")
+    expect_equal(x$type, "schema_multiple")
+})
+
+test_that("sch_multiple() stores name, inner type, and required", {
+    inner <- sch_numeric("A share", bounds = c(0, 1))
+    x <- sch_multiple(name = "demo", type = inner, desc = "Demographics")
+    expect_equal(x$name, "demo")
+    expect_identical(x$inner, inner)
+    expect_true(attr(x, "required"))
+    expect_equal(attr(x, "desc"), "Demographics")
+})
+
+test_that("sch_multiple() required=FALSE is stored correctly", {
+    x <- sch_multiple(name = "grp", type = sch_integer(), required = FALSE)
+    expect_false(attr(x, "required"))
+})
+
+test_that("sch_multiple() without cross-column fns stores NULLs", {
+    x <- sch_multiple(name = "grp", type = sch_integer())
+    expect_null(x$cross_check)
+    expect_null(x$cross_msg)
+    expect_null(x$cross_coerce)
+})
+
+test_that("sch_multiple() stores cross-column functions", {
+    chk <- function(x, type) TRUE
+    msg <- function(type) "ok"
+    crc <- function(x, type) x
+    x <- sch_multiple(name = "grp", type = sch_numeric(), check = chk, msg = msg, coerce = crc)
+    expect_identical(x$cross_check, chk)
+    expect_identical(x$cross_msg, msg)
+    expect_identical(x$cross_coerce, crc)
+})
+
+test_that("sch_multiple() errors when name is missing", {
+    expect_error(sch_multiple(type = sch_numeric()), "name")
+})
+
+test_that("sch_multiple() errors when name is not a single string", {
+    expect_error(sch_multiple(name = c("a", "b"), type = sch_numeric()), "name")
+    expect_error(sch_multiple(name = 1L, type = sch_numeric()), "name")
+})
+
+test_that("sch_multiple() errors when type is not sch_type", {
+    expect_error(sch_multiple(name = "grp", type = list()), "sch_type")
+    expect_error(sch_multiple(name = "grp", type = "numeric"), "sch_type")
+})
+
+test_that("sch_multiple() errors when type is sch_others()", {
+    expect_error(sch_multiple(name = "grp", type = sch_others()), "sch_type")
+})
+
+test_that("sch_multiple() errors when type is a schema_nest", {
+    expect_error(
+        sch_multiple(name = "grp", type = sch_nest(a = sch_numeric())),
+        "sch_type"
+    )
+})
+
+test_that("sch_multiple() errors when only some of check/msg/coerce are provided", {
+    expect_error(
+        sch_multiple(
+            name = "grp",
+            type = sch_numeric(),
+            check = function(x, type) TRUE
+        ),
+        "check.*msg.*coerce|all.*provided"
+    )
+    expect_error(
+        sch_multiple(
+            name = "grp",
+            type = sch_numeric(),
+            msg = function(type) "x"
+        ),
+        "check.*msg.*coerce|all.*provided"
+    )
+})
+
+test_that("sch_multiple() errors on wrong check arity (must have 2 args)", {
+    expect_error(
+        sch_multiple(
+            name = "grp",
+            type = sch_numeric(),
+            check = function(x) TRUE,
+            msg = function(type) "x",
+            coerce = function(x, type) x
+        ),
+        "check"
+    )
+})
+
+test_that("sch_multiple() errors on wrong msg arity (must have 1 arg)", {
+    expect_error(
+        sch_multiple(
+            name = "grp",
+            type = sch_numeric(),
+            check = function(x, type) TRUE,
+            msg = function(type, extra) "x",
+            coerce = function(x, type) x
+        ),
+        "msg"
+    )
+})
+
+test_that("sch_multiple() errors on wrong coerce arity (must have 2 args)", {
+    expect_error(
+        sch_multiple(
+            name = "grp",
+            type = sch_numeric(),
+            check = function(x, type) TRUE,
+            msg = function(type) "x",
+            coerce = function(x) x
+        ),
+        "coerce"
+    )
+})
+
+# sch_multiple() inside sch_schema() ------------------------------------
+
+test_that("sch_schema() allows unnamed sch_multiple()", {
+    x <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    expect_s3_class(x, "sch_schema")
+    expect_length(x$cols, 2)
+    expect_equal(x$cols[[2]]$type, "schema_multiple")
+})
+
+test_that("sch_schema() errors on named sch_multiple()", {
+    expect_error(
+        sch_schema(
+            id = sch_integer(),
+            grp = sch_multiple(name = "trt", type = sch_numeric())
+        ),
+        "must not be named"
+    )
+})
+
+test_that("sch_schema() allows sch_multiple() alongside sch_others()", {
+    x <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric()),
+        sch_others()
+    )
+    expect_length(x$cols, 3)
+})
+
+# format/print for sch_multiple() ---------------------------------------
+
+test_that("format.sch_type() handles schema_multiple", {
+    x <- sch_multiple(name = "trt", type = sch_numeric(bounds = c(0, 1)))
+    fmt <- format(x)
+    expect_type(fmt, "character")
+    expect_match(fmt, "trt")
+})
+
+test_that("format.sch_schema() includes multiple group entry", {
+    x <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric(), desc = "Treatments")
+    )
+    fmt <- format(x)
+    # Should have an entry for the multiple group
+    expect_true(any(grepl("trt|multiple|Treatments", fmt, ignore.case = TRUE)))
+})
+
+test_that("print.sch_schema() runs without error when sch_multiple() present", {
+    x <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    expect_output(print(x))
+})

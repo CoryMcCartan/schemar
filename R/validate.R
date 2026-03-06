@@ -82,15 +82,17 @@ sch_validate <- function(
 classify_columns <- function(cols) {
     is_other <- vapply(cols, function(x) x$type == "other", FALSE)
     is_nest <- vapply(cols, function(x) x$type == "schema_nest", FALSE)
+    is_multiple <- vapply(cols, function(x) x$type == "schema_multiple", FALSE)
     nms <- names(cols) %||% rep("", length(cols))
     is_flat_nest <- is_nest & !nzchar(nms)
     is_named_nest <- is_nest & nzchar(nms)
-    current_col_names <- nms[!is_nest & !is_other]
+    current_col_names <- nms[!is_nest & !is_other & !is_multiple]
 
     list(
         nms = nms,
         is_other = is_other,
         is_nest = is_nest,
+        is_multiple = is_multiple,
         is_flat_nest = is_flat_nest,
         is_named_nest = is_named_nest,
         current_col_names = current_col_names
@@ -115,6 +117,41 @@ validate_names <- function(cols, data, col_info, path, group_by) {
         }
         if (col_info$is_flat_nest[i]) {
             expected_names <- c(expected_names, get_all_flat_col_names(cols[[i]]$cols))
+        } else if (col_info$is_multiple[i]) {
+            tt <- cols[[i]]
+            groups_attr <- attr(data, "sch_groups")
+            if (is.null(groups_attr)) {
+                issues <- c(issues, list(make_issue("missing_sch_groups", path)))
+            } else if (!tt$name %in% names(groups_attr)) {
+                issues <- c(
+                    issues,
+                    list(make_issue("missing_group", path, name = tt$name))
+                )
+            } else {
+                col_nms <- groups_attr[[tt$name]]
+                if (length(col_nms) == 0 && isTRUE(attr(tt, "required"))) {
+                    issues <- c(
+                        issues,
+                        list(make_issue("empty_group", path, name = tt$name))
+                    )
+                }
+                expected_names <- c(expected_names, col_nms)
+                inner_type_msg <- type_fns[[tt$inner$type]]$msg(tt$inner)
+                a_an <- if (grepl("^[aeiou]", inner_type_msg)) "An " else "A "
+                expected_str <- paste0(a_an, inner_type_msg)
+                for (col_nm in col_nms) {
+                    if (!col_nm %in% names(data)) {
+                        issues <- c(
+                            issues,
+                            list(make_issue(
+                                "missing_column",
+                                c(path, col_nm),
+                                expected = expected_str
+                            ))
+                        )
+                    }
+                }
+            }
         } else {
             col_nm <- col_info$nms[i]
             expected_names <- c(expected_names, col_nm)
@@ -153,6 +190,71 @@ validate_types_missing <- function(cols, data, col_info, path) {
         if (col_info$is_other[i] || col_info$is_nest[i]) {
             next
         }
+
+        if (col_info$is_multiple[i]) {
+            tt <- cols[[i]]
+            groups_attr <- attr(data, "sch_groups")
+            if (is.null(groups_attr) || !tt$name %in% names(groups_attr)) {
+                next
+            }
+            col_nms <- groups_attr[[tt$name]]
+            if (length(col_nms) == 0) {
+                next
+            }
+
+            # Per-column type and missing checks
+            per_col_ok <- TRUE
+            for (col_nm in col_nms) {
+                if (!col_nm %in% names(data)) {
+                    next
+                }
+                col_path <- c(path, col_nm)
+                x <- data[[col_nm]]
+                inner <- tt$inner
+
+                if (!isTRUE(type_fns[[inner$type]]$check(x, inner))) {
+                    expected <- type_fns[[inner$type]]$msg(inner)
+                    a_an <- if (grepl("^[aeiou]", expected)) "An " else "A "
+                    issues <- c(
+                        issues,
+                        list(make_issue("wrong_type", col_path, expected = paste0(a_an, expected)))
+                    )
+                    per_col_ok <- FALSE
+                }
+
+                if (!attr(inner, "missing")) {
+                    is_missing <- if (is.list(x)) {
+                        anyNA(x) || any(vapply(x, is.null, logical(1)))
+                    } else {
+                        anyNA(x)
+                    }
+                    if (is_missing) {
+                        issues <- c(issues, list(make_issue("has_na", col_path)))
+                        per_col_ok <- FALSE
+                    }
+                }
+            }
+
+            # Cross-column check (only when all per-column checks passed)
+            if (per_col_ok && !is.null(tt$cross_check)) {
+                present_nms <- intersect(col_nms, names(data))
+                col_list <- setNames(lapply(present_nms, function(nm) data[[nm]]), present_nms)
+                if (!isTRUE(tt$cross_check(col_list, tt))) {
+                    cross_msg <- tt$cross_msg(tt)
+                    issues <- c(
+                        issues,
+                        list(make_issue(
+                            "cross_check_failed",
+                            path,
+                            name = tt$name,
+                            expected = cross_msg
+                        ))
+                    )
+                }
+            }
+            next
+        }
+
         tt <- cols[[i]]
         col_nm <- col_info$nms[i]
         col_path <- c(path, col_nm)
@@ -209,7 +311,7 @@ validate_distinct <- function(cols, data, col_info, path, group_by) {
     }
 
     for (i in seq_along(cols)) {
-        if (col_info$is_other[i] || col_info$is_nest[i]) {
+        if (col_info$is_other[i] || col_info$is_nest[i] || col_info$is_multiple[i]) {
             next
         }
         tt <- cols[[i]]
@@ -519,6 +621,18 @@ print_validation_issue <- function(issue) {
         ),
         not_data_frame_element = cli::format_inline(
             "Column {.field {p}} element {issue$index} is not a data frame."
+        ),
+        missing_sch_groups = cli::format_inline(
+            "Data frame is missing the {.field sch_groups} attribute (required by {.fn sch_multiple})."
+        ),
+        missing_group = cli::format_inline(
+            "Group {.field {issue$name}} not found in the {.field sch_groups} attribute."
+        ),
+        empty_group = cli::format_inline(
+            "Group {.field {issue$name}} in {.field sch_groups} has no columns ({.code required = TRUE})."
+        ),
+        cross_check_failed = cli::format_inline(
+            "Column group {.field {issue$name}} failed cross-column check. Expected {issue$expected}."
         ),
         paste0("Unknown issue: ", issue$type)
     )

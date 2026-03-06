@@ -78,12 +78,16 @@ sch_schema <- function(..., .desc = NULL) {
 
     is_other = vapply(cols, function(x) x$type == "other", FALSE)
     is_flat_nest = vapply(cols, function(x) x$type == "schema_nest", FALSE)
-    is_unnamed_ok = is_other | is_flat_nest
+    is_multiple = vapply(cols, function(x) x$type == "schema_multiple", FALSE)
+    is_unnamed_ok = is_other | is_flat_nest | is_multiple
     if (sum(is_other) > 1) {
         rlang::abort("Only one {.fn sch_others()} is allowed in a schema.")
     }
     if (any(is_other) && rlang::is_named(cols[is_other])) {
         rlang::abort("{.fn sch_others()} must not be named.")
+    }
+    if (any(is_multiple) && rlang::is_named(cols[is_multiple])) {
+        rlang::abort("{.fn sch_multiple()} must not be named.")
     }
 
     named_cols = cols[!is_unnamed_ok]
@@ -113,6 +117,82 @@ sch_others <- function() {
         missing = NA,
         required = FALSE,
         distinct = FALSE,
+        class = "sch_type"
+    )
+}
+
+#' @describeIn sch_schema A group of multiple columns sharing the same type. The
+#'   group is identified by `name`, which must appear as an entry in the
+#'   `sch_groups` attribute of the data frame being validated. That entry is a
+#'   character vector of column names that belong to this group.
+#'
+#'   Optionally accepts cross-column `check`, `msg`, and `coerce` functions that
+#'   are applied to the entire group after per-column type checks pass. These
+#'   must all be provided together or not at all.
+#'
+#'   `sch_multiple()` must be unnamed in an `sch_schema()` call. Per-column
+#'   constraints such as `missing` and `distinct` are set on the inner `type`
+#'   argument.
+#'
+#' @param name A single string identifying the group. Must match a key in the
+#'   `sch_groups` attribute of the data frame.
+#' @param type A column type constructor (e.g. [sch_numeric()]) specifying the
+#'   expected type of every column in the group.
+#' @param required If `TRUE` (default), the group entry in `sch_groups` must
+#'   contain at least one column name. If `FALSE`, an empty character vector
+#'   for that entry is also accepted.
+#' @export
+sch_multiple <- function(
+    name,
+    type,
+    desc = NULL,
+    required = TRUE,
+    check = NULL,
+    msg = NULL,
+    coerce = NULL
+) {
+    if (!is.character(name) || length(name) != 1) {
+        rlang::abort("{.arg name} must be a single string.")
+    }
+
+    invalid_types = c("other", "schema_nest", "schema_multiple")
+    if (!inherits(type, "sch_type") || type$type %in% invalid_types) {
+        rlang::abort(
+            "{.arg type} must be an {.cls sch_type} column type constructor ",
+            "(not {.fn sch_others()}, {.fn sch_nest()}, or {.fn sch_multiple()})."
+        )
+    }
+
+    fns_given = c(!is.null(check), !is.null(msg), !is.null(coerce))
+    if (any(fns_given) && !all(fns_given)) {
+        rlang::abort(
+            "{.arg check}, {.arg msg}, and {.arg coerce} must all be provided together or not at all."
+        )
+    }
+
+    if (!is.null(check)) {
+        if (!is.function(check) || length(formals(check)) != 2) {
+            rlang::abort("{.arg check} must be a function with two arguments: `x` and `type`.")
+        }
+        if (!is.function(msg) || length(formals(msg)) != 1) {
+            rlang::abort("{.arg msg} must be a function with one argument: `type`.")
+        }
+        if (!is.function(coerce) || length(formals(coerce)) != 2) {
+            rlang::abort("{.arg coerce} must be a function with two arguments: `x` and `type`.")
+        }
+    }
+
+    structure(
+        list(
+            type = "schema_multiple",
+            name = name,
+            inner = type,
+            cross_check = check,
+            cross_msg = msg,
+            cross_coerce = coerce
+        ),
+        desc = check_desc(desc),
+        required = isTRUE(required),
         class = "sch_type"
     )
 }
@@ -583,6 +663,32 @@ format_schema_cols <- function(cols, ansi = FALSE, depth = 0L) {
             out = c(out, inner$out)
             nms = c(nms, inner$nms)
             levels = c(levels, inner$levels)
+        } else if (tt$type == "schema_multiple") {
+            mode_label = "(multiple)"
+            if (isTRUE(ansi)) {
+                mode_label = cli::col_grey(mode_label)
+            }
+            desc = attr(tt, "desc")
+            hdr = if (!is.null(desc)) {
+                paste0(mode_label, " ", desc, ": each ")
+            } else {
+                paste0(mode_label, ": each ")
+            }
+            inner_fmt = format(tt$inner, ansi = ansi, capitalize = FALSE)
+            inner_fmt = paste0(
+                inner_fmt,
+                ".",
+                if (!attr(tt$inner, "missing")) " No NAs allowed.",
+                if (attr(tt$inner, "distinct")) " [Distinct]",
+                if (!attr(tt, "required")) " [Optional group]"
+            )
+            if (!is.null(tt$cross_msg)) {
+                inner_fmt = paste0(inner_fmt, " Cross-column: ", tt$cross_msg(tt), ".")
+            }
+            combined_fmt = paste0(hdr, unname(inner_fmt))
+            out = c(out, combined_fmt)
+            nms = c(nms, tt$name)
+            levels = c(levels, depth)
         } else {
             fmt = format(tt, ansi = ansi)
             desc_nm = names(fmt)
@@ -620,7 +726,7 @@ print.sch_schema <- function(x, ...) {
         cat(cli::style_bold(attr(x, "desc")), "\n", sep = "")
     }
     n_req = sum(vapply(x$cols, function(y) attr(y, "required"), FALSE))
-    hdr = cli::format_inline("A schema with {n_req} required column{?s}:")
+    hdr = cli::format_inline("A schema with {n_req} required element{?s}:")
     cat(cli::col_grey(hdr), "\n", sep = "")
 
     l_fmt = format_schema_cols(x$cols, ansi = TRUE, depth = 0L)
@@ -648,7 +754,7 @@ print.sch_schema <- function(x, ...) {
 }
 
 #' @export
-format.sch_type <- function(x, ansi = FALSE, ...) {
+format.sch_type <- function(x, ansi = FALSE, capitalize = TRUE, ...) {
     if (x$type == "other") {
         if (isTRUE(ansi)) {
             return(cli::style_italic("Other columns"))
@@ -656,12 +762,25 @@ format.sch_type <- function(x, ansi = FALSE, ...) {
             return("Other columns")
         }
     }
+    if (x$type == "schema_multiple") {
+        inner_msg = type_fns[[x$inner$type]]$msg(x$inner)
+        if (!isTRUE(ansi)) {
+            inner_msg = cli::ansi_strip(inner_msg)
+        }
+        a_an = if (grepl("^[aeiou]", inner_msg)) "an " else "a "
+        out = paste0("(multiple) ", x$name, ": each column is ", a_an, inner_msg)
+        names(out) = attr(x, "desc")
+        return(out)
+    }
     assert(x$type %in% names(type_fns), paste0("Unknown type: ", x$type))
     msg = type_fns[[x$type]]$msg(x)
     if (!isTRUE(ansi)) {
         msg = cli::ansi_strip(msg)
     }
     a_an = if (grepl("^[aeiou]", msg)) "An " else "A "
+    if (!capitalize) {
+        a_an = tolower(a_an)
+    }
     out = paste0(a_an, msg)
     names(out) = attr(x, "desc")
     out
