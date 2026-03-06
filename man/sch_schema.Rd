@@ -17,7 +17,7 @@
 \alias{sch_custom}
 \title{Define a structured data type}
 \usage{
-sch_schema(..., .desc = NULL)
+sch_schema(..., .desc = NULL, .relationships = NULL)
 
 sch_others()
 
@@ -31,7 +31,7 @@ sch_multiple(
   coerce = NULL
 )
 
-sch_nest(..., .keys = character(0), .desc = NULL)
+sch_nest(..., .desc = NULL)
 
 sch_numeric(
   desc = NULL,
@@ -117,15 +117,20 @@ as \code{sch_numeric()}. Every type must be a kind of vector, i.e.,
 \code{\link[vctrs:vector-checks]{vctrs::obj_is_vector()}} must return \code{TRUE}.
 
 All columns must be named, except for \code{sch_others()}, as described below,
-and unnamed \code{sch_nest()}, which describes a set of columns which are
-logically nested within the outer columns but are stored flat in the actual
-data frame. A named \code{sch_nest()} describes columns stored as a nested
-data frame.
+and \code{sch_multiple()}, which describes a group of columns sharing the same
+type. A named \code{sch_nest()} describes columns stored as a nested data frame.
 
 The special function \code{sch_others()} indicates the preferred location of
 other columns not explicitly mentioned in the schema. If no \code{sch_others()}
 appears, then other columns are not allowed.
 Trailing commas are permitted.}
+
+\item{.relationships}{An optional one-sided formula describing the structural
+relationships between values in different columns. Formulas can only involve
+named arguments to \code{...}. Use \code{*} to signify crossed levels, which will
+verify all combinations exist, \code{/} to signify nested levels, and \code{+} to create
+compound keys (bundling columns into a single identifier).
+See the examples below.}
 
 \item{name}{A name for the custom type.}
 
@@ -152,9 +157,6 @@ about the type when passed the type object itself. Should not end with a period.
 \item{coerce}{A two-argument function that attempts to coerce an object to the
 type. The first argument is the object to coerce, and the second is the full
 type specification.}
-
-\item{.keys}{A character vector selecting one or more column names from \code{...}
-that serve as the key columns for the nested group.}
 
 \item{bounds}{Length-two vector \code{c(min, max)} specifying the allowed range of values.}
 
@@ -199,11 +201,8 @@ must all be provided together or not at all.
 constraints such as \code{missing} and \code{distinct} are set on the inner \code{type}
 argument.
 
-\item \code{sch_nest()}: A set of columns that are logically nested within the
-outer schema. If given a name in the outer \code{sch_schema()}, the columns are
-stored as a nested data frame. If unnamed, the columns are stored flat
-(adjacent to the outer columns). The unique combinations of rows defined
-by \code{.keys} must repeat identically across groups defined by the outer columns.
+\item \code{sch_nest()}: A set of columns stored as a nested list-column of
+data frames. Must be given a name in the outer \code{sch_schema()}.
 
 \item \code{sch_numeric()}: A numeric vector that is optionally constrained to be
 within a certain range.
@@ -250,17 +249,11 @@ sch_schema(
 
 sch_schema(
     .desc = "MCMC draws",
-    draw = sch_integer(
-        "Draw number",
-        bounds = c(1, Inf),
-        closed = c(TRUE, FALSE),
-        distinct = TRUE
-    ),
-    sch_nest(
-        param = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
-        value = sch_numeric("Parameter value"),
-        .keys = "param"
-    )
+    .relationships = ~ chain * draw * parameter,
+    chain = sch_integer("Chain number"),
+    draw = sch_integer("Draw number", bounds = c(1, Inf), closed = c(TRUE, FALSE)),
+    parameter = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
+    value = sch_numeric("Parameter value")
 )
 
 sch_custom(

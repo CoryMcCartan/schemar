@@ -1,9 +1,7 @@
 # Example: MCMC draws schema
 #
-# Structure: chains (outer) -> draws (mid-level flat nest) -> param/value (inner flat nest)
-#
-# Each chain has the same set of draws; within each draw, the same set of
-# parameters must appear exactly once.
+# Structure: chain × draw × param fully crossed
+# Every (chain, draw, param) combination exists exactly once.
 
 devtools::load_all()
 
@@ -11,21 +9,15 @@ devtools::load_all()
 
 schema <- sch_schema(
     .desc = "MCMC posterior draws",
-    chain = sch_integer("Chain number", bounds = c(1, Inf), distinct = TRUE),
-    sch_nest(
-        draw = sch_integer("Draw number within chain", bounds = c(1, Inf), distinct = TRUE),
-        sch_nest(
-            param = sch_factor(
-                "Parameter name",
-                levels = c("mu", "sigma", "log_lik"),
-                strict = FALSE,
-                distinct = TRUE
-            ),
-            value = sch_numeric("Parameter draw value"),
-            .keys = "param"
-        ),
-        .keys = "draw"
-    )
+    .relationships = ~ chain * draw * param,
+    chain = sch_integer("Chain number", bounds = c(1, Inf)),
+    draw = sch_integer("Draw number within chain", bounds = c(1, Inf)),
+    param = sch_factor(
+        "Parameter name",
+        levels = c("mu", "sigma", "log_lik"),
+        strict = FALSE
+    ),
+    value = sch_numeric("Parameter draw value")
 )
 
 print(schema)
@@ -79,7 +71,7 @@ tryCatch(
     error = function(e) message(conditionMessage(e))
 )
 
-cat("\n--- Corruption 3: duplicate draw within a chain ---\n")
+cat("\n--- Corruption 3: duplicate (chain, draw, param) combo ---\n")
 # Replace draw 100 in chain 1 with draw 1 (duplicate)
 bad3 <- draws_df
 bad3$draw[bad3$chain == 1L & bad3$draw == 100L] <- 1L
@@ -88,8 +80,7 @@ tryCatch(
     error = function(e) message(conditionMessage(e))
 )
 
-cat("\n--- Corruption 4: inconsistent parameter keys across chains ---\n")
-# Chain 2 is missing 'log_lik'
+cat("\n--- Corruption 4: incomplete crossing (chain 2 missing log_lik) ---\n")
 bad4 <- draws_df[!(draws_df$chain == 2L & draws_df$param == "log_lik"), ]
 tryCatch(
     sch_validate(schema, bad4),
@@ -114,21 +105,15 @@ cat("(Passed — 'value' allows NAs by default)\n")
 # Stricter schema that forbids NAs in value
 schema_strict <- sch_schema(
     .desc = "MCMC posterior draws (strict: no NA values)",
-    chain = sch_integer("Chain number", bounds = c(1, Inf), distinct = TRUE),
-    sch_nest(
-        draw = sch_integer("Draw number within chain", bounds = c(1, Inf), distinct = TRUE),
-        sch_nest(
-            param = sch_factor(
-                "Parameter name",
-                levels = c("mu", "sigma", "log_lik"),
-                strict = FALSE,
-                distinct = TRUE
-            ),
-            value = sch_numeric("Parameter draw value", missing = FALSE),
-            .keys = "param"
-        ),
-        .keys = "draw"
-    )
+    .relationships = ~ chain * draw * param,
+    chain = sch_integer("Chain number", bounds = c(1, Inf)),
+    draw = sch_integer("Draw number within chain", bounds = c(1, Inf)),
+    param = sch_factor(
+        "Parameter name",
+        levels = c("mu", "sigma", "log_lik"),
+        strict = FALSE
+    ),
+    value = sch_numeric("Parameter draw value", missing = FALSE)
 )
 
 tryCatch(

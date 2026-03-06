@@ -43,7 +43,7 @@
 sch_validate <- function(
     schema,
     data,
-    check = c("names", "types", "distinct", "nesting"),
+    check = c("names", "types", "distinct", "relationships"),
     call = rlang::caller_env()
 ) {
     assert(
@@ -64,8 +64,11 @@ sch_validate <- function(
     if ("distinct" %in% check) {
         issues <- c(issues, validate_distinct(schema$cols, data, col_info))
     }
-    if (any(c("names", "nesting") %in% check)) {
+    if (any(c("names", "types", "distinct", "relationships") %in% check)) {
         issues <- c(issues, validate_nests(schema$cols, data, col_info, check))
+    }
+    if ("relationships" %in% check) {
+        issues <- c(issues, validate_relationships(schema, data))
     }
 
     if (length(issues) > 0) {
@@ -84,7 +87,6 @@ classify_columns <- function(cols) {
     is_nest <- vapply(cols, function(x) x$type == "schema_nest", FALSE)
     is_multiple <- vapply(cols, function(x) x$type == "schema_multiple", FALSE)
     nms <- names(cols) %||% rep("", length(cols))
-    is_flat_nest <- is_nest & !nzchar(nms)
     is_named_nest <- is_nest & nzchar(nms)
     current_col_names <- nms[!is_nest & !is_other & !is_multiple]
 
@@ -93,19 +95,15 @@ classify_columns <- function(cols) {
         is_other = is_other,
         is_nest = is_nest,
         is_multiple = is_multiple,
-        is_flat_nest = is_flat_nest,
         is_named_nest = is_named_nest,
         current_col_names = current_col_names
     )
 }
 
 
-validate_names <- function(cols, data, col_info, path, group_by) {
+validate_names <- function(cols, data, col_info, path) {
     if (missing(path)) {
         path <- character(0)
-    }
-    if (missing(group_by)) {
-        group_by <- character(0)
     }
     issues <- list()
 
@@ -115,9 +113,7 @@ validate_names <- function(cols, data, col_info, path, group_by) {
         if (col_info$is_other[i]) {
             next
         }
-        if (col_info$is_flat_nest[i]) {
-            expected_names <- c(expected_names, get_all_flat_col_names(cols[[i]]$cols))
-        } else if (col_info$is_multiple[i]) {
+        if (col_info$is_multiple[i]) {
             tt <- cols[[i]]
             groups_attr <- attr(data, "sch_groups")
             if (is.null(groups_attr)) {
@@ -170,7 +166,7 @@ validate_names <- function(cols, data, col_info, path, group_by) {
     }
 
     # Check for extra columns
-    extra <- setdiff(names(data), c(expected_names, group_by))
+    extra <- setdiff(names(data), expected_names)
     has_others <- any(col_info$is_other)
     if (length(extra) > 0 && !has_others) {
         issues <- c(issues, list(make_issue("extra_columns", path, columns = extra)))
@@ -239,7 +235,7 @@ validate_types_missing <- function(cols, data, col_info, path) {
             # Cross-column check (only when all per-column checks passed)
             if (per_col_ok && !is.null(tt$cross_check)) {
                 present_nms <- intersect(col_nms, names(data))
-                col_list <- setNames(lapply(present_nms, function(nm) data[[nm]]), present_nms)
+                col_list <- stats::setNames(lapply(present_nms, function(nm) data[[nm]]), present_nms)
                 if (!isTRUE(tt$cross_check(col_list, tt))) {
                     cross_msg <- tt$cross_msg(tt)
                     issues <- c(
@@ -294,22 +290,11 @@ validate_types_missing <- function(cols, data, col_info, path) {
 }
 
 
-validate_distinct <- function(cols, data, col_info, path, group_by) {
+validate_distinct <- function(cols, data, col_info, path) {
     if (missing(path)) {
         path <- character(0)
     }
-    if (missing(group_by)) {
-        group_by <- character(0)
-    }
     issues <- list()
-
-    # When flat nests exist, collapse to unique outer rows first
-    if (any(col_info$is_flat_nest)) {
-        all_outer <- intersect(c(group_by, col_info$current_col_names), names(data))
-        effective <- vctrs::vec_unique(data[all_outer])
-    } else {
-        effective <- data
-    }
 
     for (i in seq_along(cols)) {
         if (col_info$is_other[i] || col_info$is_nest[i] || col_info$is_multiple[i]) {
@@ -320,24 +305,25 @@ validate_distinct <- function(cols, data, col_info, path, group_by) {
             next
         }
         col_nm <- col_info$nms[i]
-        if (!col_nm %in% names(effective)) {
+        if (!col_nm %in% names(data)) {
             next
         }
         col_path <- c(path, col_nm)
 
-        issues <- c(issues, check_col_distinct(effective, col_nm, col_path, group_by))
+        x <- data[[col_nm]]
+        x_obs <- x[!is.na(x)]
+        if (vctrs::vec_unique_count(x_obs) != vctrs::vec_size(x_obs)) {
+            issues <- c(issues, list(make_issue("not_distinct", col_path)))
+        }
     }
 
     issues
 }
 
 
-validate_nests <- function(cols, data, col_info, check, path, group_by) {
+validate_nests <- function(cols, data, col_info, check, path) {
     if (missing(path)) {
         path <- character(0)
-    }
-    if (missing(group_by)) {
-        group_by <- character(0)
     }
     issues <- list()
 
@@ -347,55 +333,7 @@ validate_nests <- function(cols, data, col_info, check, path, group_by) {
                 issues,
                 validate_named_nest(cols[[i]], col_info$nms[i], data, check, path)
             )
-        } else if (col_info$is_flat_nest[i]) {
-            inner_group_by <- c(group_by, col_info$current_col_names)
-            issues <- c(
-                issues,
-                validate_flat_nest(cols[[i]], data, check, path, inner_group_by)
-            )
         }
-    }
-
-    issues
-}
-
-
-validate_flat_nest <- function(nest, data, check, path, group_by) {
-    if (missing(path)) {
-        path <- character(0)
-    }
-    if (missing(group_by)) {
-        group_by <- character(0)
-    }
-    issues <- list()
-    keys <- nest$keys
-
-    # Check keys consistency across groups
-    if ("names" %in% check && length(keys) > 0 && length(group_by) > 0) {
-        group_cols_present <- intersect(group_by, names(data))
-        keys_present <- intersect(keys, names(data))
-
-        if (length(group_cols_present) > 0 && length(keys_present) == length(keys)) {
-            issues <- c(
-                issues,
-                check_keys_consistent(data, group_cols_present, keys_present, path)
-            )
-        }
-    }
-
-    # Recurse into inner columns
-    col_info <- classify_columns(nest$cols)
-    if ("names" %in% check) {
-        issues <- c(issues, validate_names(nest$cols, data, col_info, path, group_by))
-    }
-    if ("types" %in% check) {
-        issues <- c(issues, validate_types_missing(nest$cols, data, col_info, path))
-    }
-    if ("distinct" %in% check) {
-        issues <- c(issues, validate_distinct(nest$cols, data, col_info, path, group_by))
-    }
-    if (any(c("names", "nesting") %in% check)) {
-        issues <- c(issues, validate_nests(nest$cols, data, col_info, check, path, group_by))
     }
 
     issues
@@ -439,7 +377,7 @@ validate_named_nest <- function(nest, col_nm, data, check, path) {
         if ("names" %in% check) {
             inner_issues <- c(
                 inner_issues,
-                validate_names(nest$cols, elem, col_info, character(0), col_path)
+                validate_names(nest$cols, elem, col_info, col_path)
             )
         }
         if ("types" %in% check) {
@@ -451,13 +389,7 @@ validate_named_nest <- function(nest, col_nm, data, check, path) {
         if ("distinct" %in% check) {
             inner_issues <- c(
                 inner_issues,
-                validate_distinct(nest$cols, elem, col_info, character(0), col_path)
-            )
-        }
-        if (any(c("names", "nesting") %in% check)) {
-            inner_issues <- c(
-                inner_issues,
-                validate_nests(nest$cols, elem, col_info, check, character(0), col_path)
+                validate_distinct(nest$cols, elem, col_info, col_path)
             )
         }
 
@@ -467,100 +399,155 @@ validate_named_nest <- function(nest, col_nm, data, check, path) {
         issues <- c(issues, inner_issues)
     }
 
-    # Check key consistency: every element must have the same set of key values
-    if ("names" %in% check && length(nest$keys) > 0) {
-        dfs <- x[vapply(x, is.data.frame, logical(1))]
-        issues <- c(issues, check_named_nest_keys(dfs, nest$keys, col_path))
+    issues
+}
+
+
+# Relationship validation -------------------------------------------------
+
+validate_relationships <- function(schema, data) {
+    tree <- schema$relationships
+    if (is.null(tree)) {
+        return(list())
+    }
+
+    # All formula columns
+    all_cols <- relationship_columns(tree)
+
+    # Skip if any formula column missing from data (names check catches it)
+    if (!all(all_cols %in% names(data))) {
+        return(list())
+    }
+
+    # Skip empty data frames
+    if (nrow(data) == 0L) {
+        return(list())
+    }
+
+    issues <- list()
+
+    # 1. Uniqueness: all formula columns form a primary key
+    key_data <- data[all_cols]
+    n_unique <- nrow(vctrs::vec_unique(key_data))
+    if (n_unique != nrow(data)) {
+        n_dup <- nrow(data) - n_unique
+        issues <- c(
+            issues,
+            list(make_issue(
+                "duplicate_key",
+                character(0),
+                columns = all_cols,
+                n_duplicates = n_dup
+            ))
+        )
+    }
+
+    # 2. Recursively check crossing and nesting
+    issues <- c(issues, validate_rel_node(tree, data, group_cols = character(0)))
+
+    issues
+}
+
+
+# Recursively validate a relationship tree node
+validate_rel_node <- function(node, data, group_cols) {
+    switch(
+        node$type,
+        var = list(),
+        compound = list(),
+        cross = validate_rel_cross(node, data, group_cols),
+        nest = validate_rel_nest(node, data, group_cols),
+        rlang::abort(paste0("Unknown relationship node type: ", node$type))
+    )
+}
+
+
+# Check crossing completeness: within each group defined by group_cols,
+# the unique combos of all children = product of unique combos per child
+validate_rel_cross <- function(node, data, group_cols) {
+    issues <- list()
+    children <- node$children
+
+    # Get column names per child
+    child_cols <- lapply(children, relationship_columns)
+
+    if (length(group_cols) == 0) {
+        issues <- c(issues, check_cross_completeness(data, child_cols))
+
+        # Recurse: each child gets siblings' columns as context
+        for (k in seq_along(children)) {
+            sibling_cols <- unique(unlist(child_cols[-k]))
+            new_group <- c(group_cols, sibling_cols)
+            issues <- c(issues, validate_rel_node(children[[k]], data, new_group))
+        }
+    } else {
+        grp_data <- data[group_cols]
+        locs <- vctrs::vec_group_loc(grp_data)
+
+        for (loc in locs$loc) {
+            sub <- vctrs::vec_slice(data, loc)
+            issues <- c(issues, check_cross_completeness(sub, child_cols))
+        }
+
+        # Recurse
+        for (k in seq_along(children)) {
+            sibling_cols <- unique(unlist(child_cols[-k]))
+            new_group <- c(group_cols, sibling_cols)
+            issues <- c(issues, validate_rel_node(children[[k]], data, new_group))
+        }
     }
 
     issues
 }
 
 
-# Returns an issue if the key columns in `dfs` do not contain the same set of
-# values in every element. Elements missing a key column are skipped.
-check_named_nest_keys <- function(dfs, keys, col_path) {
-    if (length(dfs) <= 1) {
+# Check that unique(all child cols) == product of unique(each child's cols)
+check_cross_completeness <- function(data, child_cols) {
+    if (length(child_cols) < 2) {
         return(list())
     }
 
-    keys_present <- intersect(keys, names(dfs[[1]]))
-    if (length(keys_present) < length(keys)) {
-        return(list())
-    }
-
-    key_vals <- function(df) vctrs::vec_sort(vctrs::vec_unique(df[keys_present]))
-    ref <- key_vals(dfs[[1]])
-
-    for (df in dfs[-1]) {
-        if (!all(keys_present %in% names(df))) {
-            next
-        }
-        if (!identical(ref, key_vals(df))) {
-            return(list(make_issue("inconsistent_keys", col_path, keys = keys_present)))
-        }
-    }
-    list()
-}
-
-
-# Check that a column has distinct values, optionally within groups.
-# The caller is responsible for pre-collapsing the data when flat nests
-# create structural row repetition (see `validate_impl`).
-check_col_distinct <- function(data, col_nm, col_path, group_by) {
-    if (missing(group_by)) {
-        group_by <- character(0)
-    }
-    x <- data[[col_nm]]
-    if (is.null(x)) {
-        return(list())
-    }
-
-    grp <- intersect(group_by, names(data))
-
-    if (length(grp) == 0) {
-        x_obs <- x[!is.na(x)]
-        if (vctrs::vec_unique_count(x_obs) != vctrs::vec_size(x_obs)) {
-            return(list(make_issue("not_distinct", col_path)))
-        }
-    } else {
-        locs <- vctrs::vec_group_loc(data[grp])
-        for (loc in locs$loc) {
-            vals <- vctrs::vec_slice(x, loc)
-            vals_obs <- vals[!is.na(vals)]
-            if (vctrs::vec_unique_count(vals_obs) != vctrs::vec_size(vals_obs)) {
-                return(list(make_issue("not_distinct", col_path)))
-            }
-        }
-    }
-
-    list()
-}
-
-
-check_keys_consistent <- function(data, group_cols, key_cols, path) {
-    group_data <- data[group_cols]
-    locs <- vctrs::vec_group_loc(group_data)
-
-    if (nrow(locs) <= 1) {
-        return(list())
-    }
-
-    key_data <- data[key_cols]
-    ref_keys <- vctrs::vec_sort(vctrs::vec_unique(
-        vctrs::vec_slice(key_data, locs$loc[[1]])
+    all_cols <- unique(unlist(child_cols))
+    actual <- nrow(vctrs::vec_unique(data[all_cols]))
+    expected <- prod(vapply(
+        child_cols,
+        function(cc) {
+            nrow(vctrs::vec_unique(data[cc]))
+        },
+        0L
     ))
 
-    for (i in seq_along(locs$loc)[-1]) {
-        this_keys <- vctrs::vec_sort(vctrs::vec_unique(
-            vctrs::vec_slice(key_data, locs$loc[[i]])
-        ))
-        if (!identical(ref_keys, this_keys)) {
-            return(list(make_issue("inconsistent_keys", path, keys = key_cols)))
-        }
+    if (actual < expected) {
+        label <- paste(
+            vapply(child_cols, function(cc) paste(cc, collapse = "+"), ""),
+            collapse = " \u00d7 "
+        )
+        return(list(make_issue(
+            "incomplete_crossing",
+            character(0),
+            label = label,
+            actual = actual,
+            expected = expected
+        )))
     }
 
     list()
+}
+
+
+# Check nesting: inner scoped within outer groups; (outer, inner) unique
+validate_rel_nest <- function(node, data, group_cols) {
+    issues <- list()
+    outer_cols <- relationship_columns(node$outer)
+    inner_cols <- relationship_columns(node$inner)
+
+    # Inner is scoped within outer: just add outer to group_cols and recurse
+    new_group <- c(group_cols, outer_cols)
+    issues <- c(issues, validate_rel_node(node$inner, data, new_group))
+    # Also recurse into outer with original group_cols
+    issues <- c(issues, validate_rel_node(node$outer, data, group_cols))
+
+    issues
 }
 
 
@@ -611,12 +598,6 @@ print_validation_issue <- function(issue) {
             nms <- cli::cli_vec(issue$columns, list("vec-trunc" = 5))
             cli::format_inline("Unexpected column{?s}: {.field {nms}}.")
         },
-        inconsistent_keys = {
-            keys_str <- paste(issue$keys, collapse = ", ")
-            cli::format_inline(
-                "Key columns ({.field {keys_str}}) have inconsistent values across groups{elem_note}."
-            )
-        },
         not_nested_df = cli::format_inline(
             "Column {.field {p}} should be a list of data frames."
         ),
@@ -635,6 +616,15 @@ print_validation_issue <- function(issue) {
         cross_check_failed = cli::format_inline(
             "Column group {.field {issue$name}} failed cross-column check. Expected {issue$expected}."
         ),
+        duplicate_key = {
+            cols_str <- paste(issue$columns, collapse = ", ")
+            cli::format_inline(
+                "Columns ({.field {cols_str}}) should uniquely identify each row. Found {issue$n_duplicates} duplicate combination{?s}."
+            )
+        },
+        incomplete_crossing = cli::format_inline(
+            "Incomplete crossing of {issue$label}: found {issue$actual} of {issue$expected} expected combinations."
+        ),
         paste0("Unknown issue: ", issue$type)
     )
 }
@@ -644,25 +634,4 @@ print_validation_issue <- function(issue) {
 
 make_issue <- function(type, path, ...) {
     c(list(type = type, path = path), list(...))
-}
-
-get_all_flat_col_names <- function(cols) {
-    nms <- character(0)
-    for (i in seq_along(cols)) {
-        if (cols[[i]]$type == "other") {
-            next
-        }
-        nm <- names(cols)[i]
-        if (cols[[i]]$type == "schema_nest") {
-            is_named <- !is.null(nm) && nzchar(nm)
-            if (is_named) {
-                nms <- c(nms, nm)
-            } else {
-                nms <- c(nms, get_all_flat_col_names(cols[[i]]$cols))
-            }
-        } else {
-            nms <- c(nms, nm)
-        }
-    }
-    nms
 }

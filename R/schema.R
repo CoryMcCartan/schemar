@@ -10,15 +10,19 @@
 #'   [vctrs::obj_is_vector()] must return `TRUE`.
 #'
 #'   All columns must be named, except for `sch_others()`, as described below,
-#'   and unnamed `sch_nest()`, which describes a set of columns which are
-#'   logically nested within the outer columns but are stored flat in the actual
-#'   data frame. A named `sch_nest()` describes columns stored as a nested
-#'   data frame.
+#'   and `sch_multiple()`, which describes a group of columns sharing the same
+#'   type. A named `sch_nest()` describes columns stored as a nested data frame.
 #'
 #'   The special function `sch_others()` indicates the preferred location of
 #'   other columns not explicitly mentioned in the schema. If no `sch_others()`
 #'   appears, then other columns are not allowed.
 #'   Trailing commas are permitted.
+#' @param .relationships An optional one-sided formula describing the structural
+#'   relationships between values in different columns. Formulas can only involve
+#'   named arguments to `...`. Use `*` to signify crossed levels, which will
+#'   verify all combinations exist, `/` to signify nested levels, and `+` to create
+#'   compound keys (bundling columns into a single identifier).
+#'   See the examples below.
 #' @param desc,.desc A description of the column for consumers of the schema.
 #'   The type contraints will be described separately and do not need to be
 #'   included in the description.  For example for "age", the description might
@@ -49,17 +53,11 @@
 #'
 #' sch_schema(
 #'     .desc = "MCMC draws",
-#'     draw = sch_integer(
-#'         "Draw number",
-#'         bounds = c(1, Inf),
-#'         closed = c(TRUE, FALSE),
-#'         distinct = TRUE
-#'     ),
-#'     sch_nest(
-#'         param = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
-#'         value = sch_numeric("Parameter value"),
-#'         .keys = "param"
-#'     )
+#'     .relationships = ~ chain * draw * parameter,
+#'     chain = sch_integer("Chain number"),
+#'     draw = sch_integer("Draw number", bounds = c(1, Inf), closed = c(TRUE, FALSE)),
+#'     parameter = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
+#'     value = sch_numeric("Parameter value")
 #' )
 #'
 #' sch_custom(
@@ -69,7 +67,7 @@
 #'    coerce = function(x, type) (as.integer(x) %/% 2) * 2
 #' )
 #' @export
-sch_schema <- function(..., .desc = NULL) {
+sch_schema <- function(..., .desc = NULL, .relationships = NULL) {
     cols = rlang::dots_list(..., .homonyms = "error", .check_assign = TRUE)
 
     if (!all(vapply(cols, inherits, FALSE, what = "sch_type"))) {
@@ -77,9 +75,9 @@ sch_schema <- function(..., .desc = NULL) {
     }
 
     is_other = vapply(cols, function(x) x$type == "other", FALSE)
-    is_flat_nest = vapply(cols, function(x) x$type == "schema_nest", FALSE)
+    is_nest = vapply(cols, function(x) x$type == "schema_nest", FALSE)
     is_multiple = vapply(cols, function(x) x$type == "schema_multiple", FALSE)
-    is_unnamed_ok = is_other | is_flat_nest | is_multiple
+    is_unnamed_ok = is_other | is_multiple
     if (sum(is_other) > 1) {
         rlang::abort("Only one {.fn sch_others()} is allowed in a schema.")
     }
@@ -88,6 +86,12 @@ sch_schema <- function(..., .desc = NULL) {
     }
     if (any(is_multiple) && rlang::is_named(cols[is_multiple])) {
         rlang::abort("{.fn sch_multiple()} must not be named.")
+    }
+    # Unnamed sch_nest() is no longer supported
+    if (any(is_nest & !rlang::have_name(cols))) {
+        rlang::abort(
+            "Unnamed {.fn sch_nest()} is no longer supported. Use named nests or {.arg .relationships}."
+        )
     }
 
     named_cols = cols[!is_unnamed_ok]
@@ -99,8 +103,47 @@ sch_schema <- function(..., .desc = NULL) {
         rlang::abort("Column names must be unique.")
     }
 
+    # Parse and validate .relationships
+    rel_tree = NULL
+    if (!is.null(.relationships)) {
+        rel_tree = parse_relationship(.relationships)
+
+        # Collect all column names referenced in the formula
+        rel_col_names = relationship_columns(rel_tree)
+
+        # All regular (non-nest, non-other, non-multiple) column names
+        regular_names = names(cols)[!is_other & !is_multiple]
+
+        bad_names = setdiff(rel_col_names, regular_names)
+        if (length(bad_names) > 0) {
+            rlang::abort(c(
+                ".relationships references columns not in the schema:",
+                paste0("  ", bad_names, collapse = "\n")
+            ))
+        }
+
+        # Disallow distinct=TRUE columns in formula
+        for (cn in rel_col_names) {
+            col_type = cols[[cn]]
+            if (!is.null(col_type) && isTRUE(attr(col_type, "distinct"))) {
+                rlang::abort(c(
+                    "Column {.field {cn}} has {.code distinct=TRUE} but appears in {.arg .relationships}.",
+                    "i" = "Columns in a relationship formula cannot have {.code distinct=TRUE}."
+                ))
+            }
+        }
+
+        # Warn on top-level compound (+ at root)
+        if (rel_tree$type == "compound") {
+            rlang::warn(c(
+                "Top-level {.code +} in {.arg .relationships} makes no structural assertion.",
+                "i" = "Did you mean to use {.code *} (crossing) or {.code /} (nesting)?"
+            ))
+        }
+    }
+
     structure(
-        list(type = "schema_flat", cols = cols),
+        list(type = "schema_flat", cols = cols, relationships = rel_tree),
         desc = check_desc(.desc),
         missing = FALSE,
         required = TRUE,
@@ -197,15 +240,10 @@ sch_multiple <- function(
     )
 }
 
-#' @describeIn sch_schema A set of columns that are logically nested within the
-#'   outer schema. If given a name in the outer `sch_schema()`, the columns are
-#'   stored as a nested data frame. If unnamed, the columns are stored flat
-#'   (adjacent to the outer columns). The unique combinations of rows defined
-#'   by `.keys` must repeat identically across groups defined by the outer columns.
-#' @param .keys A character vector selecting one or more column names from `...`
-#'   that serve as the key columns for the nested group.
+#' @describeIn sch_schema A set of columns stored as a nested list-column of
+#'   data frames. Must be given a name in the outer `sch_schema()`.
 #' @export
-sch_nest <- function(..., .keys = character(0), .desc = NULL) {
+sch_nest <- function(..., .desc = NULL) {
     cols = rlang::dots_list(..., .homonyms = "error", .check_assign = TRUE)
 
     if (!all(vapply(cols, inherits, FALSE, what = "sch_type"))) {
@@ -216,32 +254,118 @@ sch_nest <- function(..., .keys = character(0), .desc = NULL) {
         rlang::abort("{.fn sch_others()} is not allowed inside {.fn sch_nest()}.")
     }
 
-    is_unnamed_nest = vapply(cols, function(x) x$type == "schema_nest", FALSE)
-    named_cols = cols[!is_unnamed_nest]
-    if (length(named_cols) > 0 && !rlang::is_named(named_cols)) {
-        rlang::abort("All columns must be named.")
+    if (length(cols) > 0 && !rlang::is_named(cols)) {
+        rlang::abort("All columns inside {.fn sch_nest()} must be named.")
     }
-    nms = names(named_cols)
+    nms = names(cols)
     if (anyDuplicated(nms[nzchar(nms)]) > 0) {
         rlang::abort("Column names must be unique.")
     }
 
-    if (!is.character(.keys)) {
-        rlang::abort("{.arg .keys} must be a character vector.")
-    }
-    bad_keys = setdiff(.keys, names(cols)[!is_unnamed_nest])
-    if (length(bad_keys) > 0) {
-        rlang::abort("{.arg .keys} must reference column names: {.field {bad_keys}} not found.")
-    }
-
     structure(
-        list(type = "schema_nest", cols = cols, keys = .keys),
+        list(type = "schema_nest", cols = cols),
         desc = check_desc(.desc),
         missing = FALSE,
         required = TRUE,
         class = c("sch_schema", "sch_type")
     )
 }
+
+
+# Formula parsing ---------------------------------------------------------
+
+#' Parse a relationship formula into a tree
+#'
+#' @param formula A one-sided formula (e.g., `~ a * b / c`).
+#' @returns A list representing the parsed tree with `$type` being one of
+#'   `"var"`, `"cross"`, `"nest"`, or `"compound"`.
+#' @export
+parse_relationship <- function(formula) {
+    if (!inherits(formula, "formula")) {
+        rlang::abort("{.arg formula} must be a formula.")
+    }
+    if (length(formula) == 3L) {
+        rlang::abort("{.arg formula} must be one-sided (e.g., {.code ~ a * b}).")
+    }
+    parse_rel_expr(formula[[2L]])
+}
+
+# Recursively parse an R expression from the formula RHS
+parse_rel_expr <- function(expr) {
+    if (is.symbol(expr)) {
+        return(list(type = "var", name = as.character(expr)))
+    }
+    if (is.call(expr)) {
+        op = as.character(expr[[1L]])
+        if (op == "(") {
+            return(parse_rel_expr(expr[[2L]]))
+        }
+        if (op %in% c("*", ":")) {
+            left = parse_rel_expr(expr[[2L]])
+            right = parse_rel_expr(expr[[3L]])
+            # Flatten nested crosses into one node
+            children = c(
+                if (left$type == "cross") left$children else list(left),
+                if (right$type == "cross") right$children else list(right)
+            )
+            return(list(type = "cross", children = children))
+        }
+        if (op == "/") {
+            outer = parse_rel_expr(expr[[2L]])
+            inner = parse_rel_expr(expr[[3L]])
+            return(list(type = "nest", outer = outer, inner = inner))
+        }
+        if (op == "+") {
+            left = parse_rel_expr(expr[[2L]])
+            right = parse_rel_expr(expr[[3L]])
+            # Flatten nested compounds into one node
+            children = c(
+                if (left$type == "compound") left$children else list(left),
+                if (right$type == "compound") right$children else list(right)
+            )
+            return(list(type = "compound", children = children))
+        }
+    }
+    rlang::abort(paste0("Unsupported operator in relationship formula: ", deparse(expr)))
+}
+
+#' Extract all column names from a relationship tree
+#' @param tree A parsed relationship tree (from [parse_relationship()]).
+#' @returns A character vector of unique column names.
+#' @keywords internal
+relationship_columns <- function(tree) {
+    switch(
+        tree$type,
+        var = tree$name,
+        cross = unique(unlist(lapply(tree$children, relationship_columns))),
+        compound = unique(unlist(lapply(tree$children, relationship_columns))),
+        nest = unique(c(relationship_columns(tree$outer), relationship_columns(tree$inner))),
+        rlang::abort(paste0("Unknown relationship node type: ", tree$type))
+    )
+}
+
+#' Format a relationship tree as a human-readable string
+#' @param tree A parsed relationship tree.
+#' @returns A single string.
+#' @keywords internal
+format_relationship <- function(tree) {
+    switch(
+        tree$type,
+        var = tree$name,
+        cross = paste(vapply(tree$children, format_relationship, ""), collapse = " \u00d7 "),
+        compound = {
+            inner = paste(vapply(tree$children, format_relationship, ""), collapse = " + ")
+            paste0("(", inner, ")")
+        },
+        nest = {
+            outer_str = format_relationship(tree$outer)
+            inner_str = format_relationship(tree$inner)
+            paste0(outer_str, " / ", inner_str)
+        },
+        rlang::abort(paste0("Unknown relationship node type: ", tree$type))
+    )
+}
+
 
 #' @describeIn sch_schema A numeric vector that is optionally constrained to be
 #'   within a certain range.
@@ -644,8 +768,7 @@ format_schema_cols <- function(cols, ansi = FALSE, depth = 0L) {
             nms = c(nms, "...")
             levels = c(levels, depth)
         } else if (tt$type == "schema_nest") {
-            is_named = !is.null(col_nm) && nzchar(col_nm)
-            mode_label = if (is_named) "(nested)" else "(flat)"
+            mode_label = "(nested)"
             if (isTRUE(ansi)) {
                 mode_label = cli::col_grey(mode_label)
             }
@@ -657,7 +780,7 @@ format_schema_cols <- function(cols, ansi = FALSE, depth = 0L) {
             }
             # Header lives at the current depth; inner columns at depth+1
             out = c(out, hdr)
-            nms = c(nms, if (is_named) col_nm else "")
+            nms = c(nms, col_nm)
             levels = c(levels, depth)
             inner = format_schema_cols(tt$cols, ansi = ansi, depth = depth + 1L)
             out = c(out, inner$out)
@@ -750,6 +873,17 @@ print.sch_schema <- function(x, ...) {
         indent = strrep(" ", cum_indent[l + 1L])
         lbl = cli::ansi_align(cli::col_green(nms[i]), width = w_by_lvl[l + 1L], align = "right")
         cat(indent, lbl, "  ", fmt[i], "\n", sep = "")
+    }
+
+    # Print relationships if present
+    if (!is.null(x$relationships)) {
+        cat(
+            cli::col_grey("Relationships:"),
+            " ",
+            cli::style_italic(format_relationship(x$relationships)),
+            "\n",
+            sep = ""
+        )
     }
 }
 

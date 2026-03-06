@@ -7,7 +7,7 @@
 sch_validate(
   schema,
   data,
-  check = c("names", "types", "distinct", "nesting"),
+  check = c("names", "types", "distinct", "relationships"),
   call = rlang::caller_env()
 )
 }
