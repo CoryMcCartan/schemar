@@ -72,7 +72,7 @@ if (FALSE) { # \dontrun{
 # missing required columns
 sch_validate(schema, data.frame(id = 1:2))
 
-# Validation error: type constrains
+# type constrains not satisfied
 sch_validate(schema, data.frame(id = c(1L, 1L), name = c("Alice", NA)))
 } # }
 ```
