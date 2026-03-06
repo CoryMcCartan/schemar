@@ -65,10 +65,9 @@ types, missing values, uniqueness constraints, and nesting structure.</p>
 default runs all checks. Possible values:</p><ul><li><p><code>"names"</code>: check for missing required columns and unexpected extra columns.</p></li>
 <li><p><code>"types"</code>: check column types and missing-value (<code>NA</code>) constraints.</p></li>
 <li><p><code>"distinct"</code>: check uniqueness constraints for columns marked
-<code>distinct = TRUE</code>. Omit this for large data frames where the check is
-expensive.</p></li>
+<code>distinct = TRUE</code>. Relatively expensive.</p></li>
 <li><p><code>"nesting"</code>: validate nested schema columns (flat and named nests),
-including key consistency.</p></li>
+including key consistency. Relatively expensive.</p></li>
 </ul></dd>
 
 

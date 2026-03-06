@@ -47,7 +47,7 @@ Schemas support nesting relationships.</p>
 <span></span>
 <span><span class="fu">sch_others</span><span class="op">(</span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu">sch_nest</span><span class="op">(</span><span class="va">...</span>, .keys <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">character</a></span><span class="op">(</span><span class="fl">0</span><span class="op">)</span>, .desc <span class="op">=</span> <span class="cn">NULL</span>, distinct <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
+<span><span class="fu">sch_nest</span><span class="op">(</span><span class="va">...</span>, .keys <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">character</a></span><span class="op">(</span><span class="fl">0</span><span class="op">)</span>, .desc <span class="op">=</span> <span class="cn">NULL</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu">sch_numeric</span><span class="op">(</span></span>
 <span>  desc <span class="op">=</span> <span class="cn">NULL</span>,</span>
@@ -152,20 +152,15 @@ Trailing commas are permitted.</p></dd>
 that serve as the key columns for the nested group.</p></dd>
 
 
-<dt id="arg-distinct">distinct<a class="anchor" aria-label="anchor" href="#arg-distinct"></a></dt>
-<dd><p>If <code>TRUE</code>, the column must contain no duplicate values (after
-accounting for nesting structure). If <code>FALSE</code> (the default), duplicates are allowed.</p></dd>
-
-
 <dt id="arg-desc-desc">desc, .desc<a class="anchor" aria-label="anchor" href="#arg-desc-desc"></a></dt>
 <dd><p>A description of the column for consumers of the schema.
 The type contraints will be described separately and do not need to be
-included in the description.  For example for "age", the descriptoin might
+included in the description.  For example for "age", the description might
 be "Age of the patient in years", not "Non-negative integer representing
 the age of the patient in years".</p></dd>
 
 
-<dt id="arg-bounds-">bounds, <a class="anchor" aria-label="anchor" href="#arg-bounds-"></a></dt>
+<dt id="arg-bounds">bounds<a class="anchor" aria-label="anchor" href="#arg-bounds"></a></dt>
 <dd><p>Length-two vector <code>c(min, max)</code> specifying the allowed range of values.</p></dd>
 
 
@@ -182,6 +177,11 @@ any missing values result in an error.</p></dd>
 <dt id="arg-required">required<a class="anchor" aria-label="anchor" href="#arg-required"></a></dt>
 <dd><p>If <code>TRUE</code>, the column must be present. If <code>FALSE</code>, the column
 is optional.</p></dd>
+
+
+<dt id="arg-distinct">distinct<a class="anchor" aria-label="anchor" href="#arg-distinct"></a></dt>
+<dd><p>If <code>TRUE</code>, the column must contain no duplicate values (after
+accounting for nesting structure).</p></dd>
 
 
 <dt id="arg-levels">levels<a class="anchor" aria-label="anchor" href="#arg-levels"></a></dt>
@@ -245,9 +245,9 @@ within a certain range.</p></li>
 <li><p><code>sch_inherits()</code>: A list-column whose elements satisfy <code>inherits(_, class)</code>.</p></li>
 <li><p><code>sch_list_of()</code>: A vector satisfying <code>inherits(_, class)</code>.</p></li>
 <li><p><code>sch_custom()</code>: A custom type defined by user-provided check, error,
-and coercion functions. Additional Additional named values to be stored
-along with the type specification may be passed via <code>...</code> and will be available
-to the check, error, and coercion functions.</p></li>
+and coercion functions. Additional named values to be stored along with the
+type specification may be passed via <code>...</code> and will be available to the
+check, error, and coercion functions.</p></li>
 </ul></div>
 
     <div class="section level2">

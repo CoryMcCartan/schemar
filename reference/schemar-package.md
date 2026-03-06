@@ -5,6 +5,12 @@ creation of structured subtypes of data frames which require certain
 columns and types to be present, and which preserve special attributes
 through common data frame manipulations.
 
+## See also
+
+Useful links:
+
+- <http://corymccartan.com/schemar/>
+
 ## Author
 
 **Maintainer**: Cory McCartan <mccartan@psu.edu>

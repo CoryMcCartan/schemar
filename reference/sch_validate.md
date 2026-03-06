@@ -37,11 +37,10 @@ sch_validate(
   - `"types"`: check column types and missing-value (`NA`) constraints.
 
   - `"distinct"`: check uniqueness constraints for columns marked
-    `distinct = TRUE`. Omit this for large data frames where the check
-    is expensive.
+    `distinct = TRUE`. Relatively expensive.
 
   - `"nesting"`: validate nested schema columns (flat and named nests),
-    including key consistency.
+    including key consistency. Relatively expensive.
 
 - call:
 

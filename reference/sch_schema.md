@@ -11,7 +11,7 @@ sch_schema(..., .desc = NULL)
 
 sch_others()
 
-sch_nest(..., .keys = character(0), .desc = NULL, distinct = FALSE)
+sch_nest(..., .keys = character(0), .desc = NULL)
 
 sch_numeric(
   desc = NULL,
@@ -117,21 +117,15 @@ sch_custom(
   A character vector selecting one or more column names from `...` that
   serve as the key columns for the nested group.
 
-- distinct:
-
-  If `TRUE`, the column must contain no duplicate values (after
-  accounting for nesting structure). If `FALSE` (the default),
-  duplicates are allowed.
-
 - desc, .desc:
 
   A description of the column for consumers of the schema. The type
   contraints will be described separately and do not need to be included
-  in the description. For example for "age", the descriptoin might be
+  in the description. For example for "age", the description might be
   "Age of the patient in years", not "Non-negative integer representing
   the age of the patient in years".
 
-- bounds, :
+- bounds:
 
   Length-two vector `c(min, max)` specifying the allowed range of
   values.
@@ -150,6 +144,11 @@ sch_custom(
 
   If `TRUE`, the column must be present. If `FALSE`, the column is
   optional.
+
+- distinct:
+
+  If `TRUE`, the column must contain no duplicate values (after
+  accounting for nesting structure).
 
 - levels:
 
@@ -226,9 +225,9 @@ An object of class `sch_schema`,
 - `sch_list_of()`: A vector satisfying `inherits(_, class)`.
 
 - `sch_custom()`: A custom type defined by user-provided check, error,
-  and coercion functions. Additional Additional named values to be
-  stored along with the type specification may be passed via `...` and
-  will be available to the check, error, and coercion functions.
+  and coercion functions. Additional named values to be stored along
+  with the type specification may be passed via `...` and will be
+  available to the check, error, and coercion functions.
 
 ## Examples
 
