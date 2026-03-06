@@ -10,8 +10,10 @@
 #'   [vctrs::obj_is_vector()] must return `TRUE`.
 #'
 #'   All columns must be named, except for `sch_others()`, as described below,
-#'   and `sch_flat()`, which describes a set of columns which are logically
-#'   nested within the outer columns but are not nested in the actual data frame.
+#'   and unnamed `sch_nest()`, which describes a set of columns which are
+#'   logically nested within the outer columns but are stored flat in the actual
+#'   data frame. A named `sch_nest()` describes columns stored as a nested
+#'   data frame.
 #'
 #'   The special function `sch_others()` indicates the preferred location of
 #'   other columns not explicitly mentioned in the schema. If no `sch_others()`
@@ -46,12 +48,12 @@
 #' sch_schema(
 #'     .desc = "MCMC draws",
 #'     draw = sch_integer("Draw number", bounds = c(1, Inf), closed = c(TRUE, FALSE)),
-#'     contents = sch_schema(
+#'     sch_nest(
 #'        param = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
 #'        value = sch_numeric("Parameter value"),
+#'        .keys = "param"
 #'     )
 #' )
-#'
 #' sch_custom(
 #'    name = "even",
 #'    check = function(x, type) is.integer(x) && all(x %% 2 == 0),
@@ -67,6 +69,8 @@ sch_schema <- function(..., .desc = NULL) {
     }
 
     is_other = vapply(cols, function(x) x$type == "other", FALSE)
+    is_flat_nest = vapply(cols, function(x) x$type == "schema_nest", FALSE)
+    is_unnamed_ok = is_other | is_flat_nest
     if (sum(is_other) > 1) {
         rlang::abort("Only one {.fn sch_others()} is allowed in a schema.")
     }
@@ -74,7 +78,7 @@ sch_schema <- function(..., .desc = NULL) {
         rlang::abort("{.fn sch_others()} must not be named.")
     }
 
-    named_cols = cols[!is_other]
+    named_cols = cols[!is_unnamed_ok]
     if (length(named_cols) > 0 && !rlang::is_named(named_cols)) {
         rlang::abort("All columns must be named.")
     }
@@ -92,44 +96,102 @@ sch_schema <- function(..., .desc = NULL) {
     )
 }
 
+# Internal helper: recursively formats schema columns, tracking nesting depth.
+# Returns a list(out, nms, levels).
+format_schema_cols <- function(cols, ansi = FALSE, depth = 0L) {
+    out = character(0)
+    nms = character(0)
+    levels = integer(0)
+
+    for (i in seq_along(cols)) {
+        tt = cols[[i]]
+        col_nm = names(cols)[i]
+
+        if (tt$type == "other") {
+            out = c(out, format(tt, ansi = ansi))
+            nms = c(nms, "...")
+            levels = c(levels, depth)
+        } else if (tt$type == "schema_nest") {
+            is_named = !is.null(col_nm) && nzchar(col_nm)
+            mode_label = if (is_named) "(nested)" else "(flat)"
+            if (isTRUE(ansi)) {
+                mode_label = cli::col_grey(mode_label)
+            }
+            desc = attr(tt, "desc")
+            hdr = if (!is.null(desc)) {
+                paste0(mode_label, " ", desc, ":")
+            } else {
+                paste0(mode_label, ":")
+            }
+            # Header lives at the current depth; inner columns at depth+1
+            out = c(out, hdr)
+            nms = c(nms, if (is_named) col_nm else "")
+            levels = c(levels, depth)
+            inner = format_schema_cols(tt$cols, ansi = ansi, depth = depth + 1L)
+            out = c(out, inner$out)
+            nms = c(nms, inner$nms)
+            levels = c(levels, inner$levels)
+        } else {
+            fmt = format(tt, ansi = ansi)
+            desc_nm = names(fmt)
+            fmt = paste0(
+                fmt,
+                ".",
+                if (!attr(tt, "missing")) " No NAs allowed.",
+                if (!attr(tt, "required")) " [Optional]"
+            )
+            names(fmt) = desc_nm
+            if (!is.null(names(fmt))) {
+                fmt = paste0(names(fmt), ": ", fmt)
+            }
+            out = c(out, unname(fmt))
+            nms = c(nms, col_nm)
+            levels = c(levels, depth)
+        }
+    }
+    list(out = out, nms = nms, levels = levels)
+}
+
 #' @export
 format.sch_schema <- function(x, ansi = FALSE, ...) {
-    out = character(length(x$cols))
-    names(out) = names(x$cols)
-    for (i in seq_along(x$cols)) {
-        tt = x$cols[[i]]
-        fmt = format(tt, ansi = ansi)
-        if (tt$type == "other") {
-            out[i] = fmt
-            names(out)[i] = "..."
-            next
-        }
-        fmt = paste0(
-            fmt,
-            ".",
-            if (!attr(tt, "missing")) " No NAs allowed.",
-            if (!attr(tt, "required")) " [Optional]"
-        )
-        if (!is.null(names(fmt))) {
-            fmt = paste0(names(fmt), ": ", fmt)
-        }
-        out[i] = unname(fmt)
-    }
+    res = format_schema_cols(x$cols, ansi = ansi, depth = 0L)
+    out = res$out
+    names(out) = res$nms
     attr(out, "desc") = attr(x, "desc")
     out
 }
+
 #' @export
 print.sch_schema <- function(x, ...) {
     if (!is.null(attr(x, "desc"))) {
-        cat(cli::style_bold(attr(x, "desc")), "\n")
+        cat(cli::style_bold(attr(x, "desc")), "\n", sep = "")
     }
     n_req = sum(vapply(x$cols, function(y) attr(y, "required"), FALSE))
-    cat(cli::col_grey("A schema with ", n_req, " required columns:"), "\n", sep = "")
-    fmt = format(x, ansi = TRUE)
-    nms = names(fmt)
-    w_nms = max(nchar(nms))
-    lbls = cli::ansi_align(cli::col_green(nms), width = w_nms, align = "right")
-    cat(paste0(lbls, "  ", fmt), sep = "\n")
+    hdr = cli::format_inline("A schema with {n_req} required column{?s}:")
+    cat(cli::col_grey(hdr), "\n", sep = "")
+
+    l_fmt = format_schema_cols(x$cols, ansi = TRUE, depth = 0L)
+    fmt = l_fmt$out
+    nms = l_fmt$nms
+    lvls = l_fmt$levels
+    max_lvl = max(lvls)
+
+    # Per-level max name width (empty-string names contribute 0)
+    w_by_lvl = vapply(0:max_lvl, function(l) max(cli::ansi_nchar(nms[lvls == l])), 0L)
+
+    # Cumulative indent at each level: level 0 has no indent;
+    # level L is indented by sum of (w_by_lvl[0:L-1] + 2) each
+    cum_indent = integer(max_lvl + 1L)
+    for (l in seq_len(max_lvl)) {
+        cum_indent[l + 1L] = cum_indent[l] + w_by_lvl[l] + 2L
+    }
+
+    for (i in seq_along(fmt)) {
+        l = lvls[i]
+        indent = strrep(" ", cum_indent[l + 1L])
+        lbl = cli::ansi_align(cli::col_green(nms[i]), width = w_by_lvl[l + 1L], align = "right")
+        cat(indent, lbl, "  ", fmt[i], "\n", sep = "")
+    }
 }
 
 #' @export
@@ -166,6 +228,52 @@ print.sch_type <- function(x, ...) {
 #' @export
 sch_others <- function() {
     structure(list(type = "other"), required = FALSE, class = "sch_type")
+}
+
+#' @describeIn sch_schema A set of columns that are logically nested within the
+#'   outer schema. If given a name in the outer `sch_schema()`, the columns are
+#'   stored as a nested data frame. If unnamed, the columns are stored flat
+#'   (adjacent to the outer columns). The unique combinations of rows defined
+#'   by `.keys` must repeat identically across groups defined by the outer columns.
+#' @param .keys A character vector selecting one or more column names from `...`
+#'   that serve as the key columns for the nested group.
+#' @export
+sch_nest <- function(..., .keys=character(0), .desc = NULL) {
+    cols = rlang::dots_list(..., .homonyms = "error", .check_assign = TRUE)
+
+    if (!all(vapply(cols, inherits, FALSE, what = "sch_type"))) {
+        rlang::abort("All columns must be specified using a column type constructor.")
+    }
+    has_other = any(vapply(cols, function(x) x$type == "other", FALSE))
+    if (has_other) {
+        rlang::abort("{.fn sch_others()} is not allowed inside {.fn sch_nest()}.")
+    }
+
+    is_unnamed_nest = vapply(cols, function(x) x$type == "schema_nest", FALSE)
+    named_cols = cols[!is_unnamed_nest]
+    if (length(named_cols) > 0 && !rlang::is_named(named_cols)) {
+        rlang::abort("All columns must be named.")
+    }
+    nms = names(named_cols)
+    if (anyDuplicated(nms[nzchar(nms)]) > 0) {
+        rlang::abort("Column names must be unique.")
+    }
+
+    if (!is.character(.keys)) {
+        rlang::abort("{.arg .keys} must be a character vector.")
+    }
+    bad_keys = setdiff(.keys, names(cols)[!is_unnamed_nest])
+    if (length(bad_keys) > 0) {
+        rlang::abort("{.arg .keys} must reference column names: {.field {bad_keys}} not found.")
+    }
+
+    structure(
+        list(type = "schema_nest", cols = cols, keys = .keys),
+        desc = check_desc(.desc),
+        missing = FALSE,
+        required = TRUE,
+        class = c("sch_schema", "sch_type")
+    )
 }
 
 #' @describeIn sch_schema A numeric vector that is optionally constrained to be

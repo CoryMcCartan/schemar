@@ -3,6 +3,7 @@
 \name{sch_schema}
 \alias{sch_schema}
 \alias{sch_others}
+\alias{sch_nest}
 \alias{sch_numeric}
 \alias{sch_integer}
 \alias{sch_logical}
@@ -18,6 +19,8 @@
 sch_schema(..., .desc = NULL)
 
 sch_others()
+
+sch_nest(..., .keys = character(0), .desc = NULL)
 
 sch_numeric(
   desc = NULL,
@@ -79,13 +82,18 @@ as \code{sch_numeric()}. Every type must be a kind of vector, i.e.,
 \code{\link[vctrs:vector-checks]{vctrs::obj_is_vector()}} must return \code{TRUE}.
 
 All columns must be named, except for \code{sch_others()}, as described below,
-and \code{sch_flat()}, which describes a set of columns which are logically
-nested within the outer columns but are not nested in the actual data frame.
+and unnamed \code{sch_nest()}, which describes a set of columns which are
+logically nested within the outer columns but are stored flat in the actual
+data frame. A named \code{sch_nest()} describes columns stored as a nested
+data frame.
 
 The special function \code{sch_others()} indicates the preferred location of
 other columns not explicitly mentioned in the schema. If no \code{sch_others()}
 appears, then other columns are not allowed.
 Trailing commas are permitted.}
+
+\item{.keys}{A character vector selecting one or more column names from \code{...}
+that serve as the key columns for the nested group.}
 
 \item{desc, .desc}{A description of the column for consumers of the schema.
 The type contraints will be described separately and do not need to be
@@ -136,6 +144,12 @@ Schemas can be nested.
 \itemize{
 \item \code{sch_others()}: A placeholder for other non-required columns in a schema.
 
+\item \code{sch_nest()}: A set of columns that are logically nested within the
+outer schema. If given a name in the outer \code{sch_schema()}, the columns are
+stored as a nested data frame. If unnamed, the columns are stored flat
+(adjacent to the outer columns). The unique combinations of rows defined
+by \code{.keys} must repeat identically across groups defined by the outer columns.
+
 \item \code{sch_numeric()}: A numeric vector that is optionally constrained to be
 within a certain range.
 
@@ -182,12 +196,12 @@ sch_schema(
 sch_schema(
     .desc = "MCMC draws",
     draw = sch_integer("Draw number", bounds = c(1, Inf), closed = c(TRUE, FALSE)),
-    contents = sch_schema(
+    sch_nest(
        param = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
        value = sch_numeric("Parameter value"),
+       .keys = "param"
     )
 )
-
 sch_custom(
    name = "even",
    check = function(x, type) is.integer(x) && all(x \%\% 2 == 0),

@@ -343,3 +343,298 @@ test_that("print.sch_type() runs without error", {
     expect_output(print(sch_numeric("Height")), "Height")
     expect_output(print(sch_others()))
 })
+
+# sch_nest() -------------------------------------------------------------
+
+test_that("sch_nest() returns sch_schema class with type schema_nest", {
+    x <- sch_nest(
+        param = sch_character(),
+        value = sch_numeric(),
+        .keys = "param"
+    )
+    expect_s3_class(x, "sch_schema")
+    expect_s3_class(x, "sch_type")
+    expect_equal(x$type, "schema_nest")
+    expect_equal(x$keys, "param")
+})
+
+test_that("sch_nest() stores columns correctly", {
+    x <- sch_nest(
+        a = sch_integer(),
+        b = sch_numeric(),
+        .keys = "a"
+    )
+    expect_named(x$cols, c("a", "b"))
+    expect_s3_class(x$cols$a, "sch_type")
+    expect_s3_class(x$cols$b, "sch_type")
+})
+
+test_that("sch_nest() accepts .desc", {
+    x <- sch_nest(a = sch_integer(), .keys = "a", .desc = "My group")
+    expect_equal(attr(x, "desc"), "My group")
+})
+
+test_that("sch_nest() accepts multiple keys", {
+    x <- sch_nest(
+        a = sch_integer(),
+        b = sch_character(),
+        c = sch_numeric(),
+        .keys = c("a", "b")
+    )
+    expect_equal(x$keys, c("a", "b"))
+})
+
+test_that("sch_nest() errors when .keys is not character", {
+    expect_error(
+        sch_nest(a = sch_integer(), .keys = 1),
+        "character"
+    )
+})
+
+test_that("sch_nest() errors when .keys references non-existent columns", {
+    expect_error(
+        sch_nest(a = sch_integer(), .keys = "b"),
+        "column"
+    )
+})
+
+test_that("sch_nest() allows empty .keys", {
+    expect_no_error(sch_nest(a = sch_integer(), .keys = character(0)))
+})
+
+test_that("sch_nest() errors on non-sch_type columns", {
+    expect_error(
+        sch_nest(a = 1, .keys = "a"),
+        "column type constructor"
+    )
+})
+
+test_that("sch_nest() errors on unnamed columns", {
+    expect_error(
+        sch_nest(sch_integer(), .keys = character(0)),
+        "named"
+    )
+})
+
+test_that("sch_nest() errors when sch_others() is included", {
+    expect_error(
+        sch_nest(a = sch_integer(), sch_others(), .keys = "a"),
+        "sch_others"
+    )
+})
+
+test_that("sch_nest() errors on duplicate column names", {
+    expect_error(
+        sch_nest(a = sch_integer(), a = sch_numeric(), .keys = "a")
+    )
+})
+
+# sch_nest() inside sch_schema() -----------------------------------------
+
+test_that("named sch_nest() works in sch_schema()", {
+    x <- sch_schema(
+        id = sch_integer(),
+        draws = sch_nest(
+            param = sch_character(),
+            value = sch_numeric(),
+            .keys = "param"
+        )
+    )
+    expect_s3_class(x, "sch_schema")
+    expect_equal(x$cols$draws$type, "schema_nest")
+})
+
+test_that("unnamed sch_nest() works in sch_schema() (flat)", {
+    x <- sch_schema(
+        id = sch_integer(),
+        sch_nest(
+            param = sch_character(),
+            value = sch_numeric(),
+            .keys = "param"
+        )
+    )
+    # unnamed nest should be allowed
+    expect_s3_class(x, "sch_schema")
+    expect_length(x$cols, 2)
+    expect_equal(x$cols[[2]]$type, "schema_nest")
+})
+
+test_that("unnamed sch_nest() and sch_others() coexist in sch_schema()", {
+    x <- sch_schema(
+        id = sch_integer(),
+        sch_nest(a = sch_numeric(), .keys = "a"),
+        sch_others()
+    )
+    expect_length(x$cols, 3)
+})
+
+# Print/format with sch_nest() ------------------------------------------
+
+test_that("format.sch_schema() attaches 'levels' attribute", {
+    x <- sch_schema(
+        age = sch_integer(),
+        sch_nest(
+            subject = sch_character(),
+            score = sch_numeric(),
+            .keys = "subject",
+            .desc = "exam scores"
+        )
+    )
+    fmt_l <- format_schema_cols(x$cols, ansi = FALSE, depth = 0L)
+    fmt <- fmt_l$out
+    nms <- fmt_l$nms
+    lvls <- fmt_l$levels
+    expect_type(lvls, "integer")
+    expect_length(lvls, length(fmt))
+    # age is at level 0, header at level 0, subject/score at level 1
+    expect_equal(lvls[nms == "age"], 0L)
+    expect_equal(lvls[grep("flat", fmt)], 0L)
+    expect_equal(lvls[nms == "subject"], 1L)
+    expect_equal(lvls[nms == "score"], 1L)
+})
+
+
+test_that("format.sch_schema() with unnamed sch_nest() shows (flat) header", {
+    x <- sch_schema(
+        age = sch_integer(),
+        sch_nest(
+            subject = sch_character(),
+            score = sch_numeric(),
+            .keys = "subject",
+            .desc = "exam scores"
+        )
+    )
+    fmt <- format(x)
+    # Should contain the flat header
+    header_line <- fmt[grep("flat", fmt)]
+    expect_length(header_line, 1)
+    expect_match(header_line, "exam scores")
+    expect_match(header_line, "\\(flat\\)")
+})
+
+test_that("format.sch_schema() with named sch_nest() shows (nested) header", {
+    x <- sch_schema(
+        age = sch_integer(),
+        scores = sch_nest(
+            subject = sch_character(),
+            score = sch_numeric(),
+            .keys = "subject",
+            .desc = "exam scores"
+        )
+    )
+    fmt <- format(x)
+    header_line <- fmt[grep("nested", fmt)]
+    expect_length(header_line, 1)
+    expect_match(header_line, "exam scores")
+    expect_match(header_line, "\\(nested\\)")
+    # named nest has the column name in names(fmt)
+    expect_true("scores" %in% names(fmt))
+})
+
+test_that("print.sch_schema() with sch_nest() runs without error", {
+    x <- sch_schema(
+        id = sch_integer(),
+        sch_nest(
+            param = sch_character(),
+            value = sch_numeric(),
+            .keys = "param",
+            .desc = "parameters"
+        )
+    )
+    expect_output(print(x), "schema")
+})
+
+test_that("print.sch_schema() with named sch_nest() runs without error", {
+    x <- sch_schema(
+        id = sch_integer(),
+        draws = sch_nest(
+            param = sch_character(),
+            value = sch_numeric(),
+            .keys = "param",
+            .desc = "MCMC draws"
+        )
+    )
+    expect_output(print(x), "schema")
+})
+
+# Nested nesting -------------------------------------------------------
+
+test_that("sch_nest() allows unnamed nested sch_nest()", {
+    x <- sch_nest(
+        group = sch_character(),
+        sch_nest(
+            item = sch_numeric(),
+            .keys = "item",
+            .desc = "items"
+        ),
+        .keys = "group",
+        .desc = "groups"
+    )
+    expect_s3_class(x, "sch_schema")
+    expect_equal(x$type, "schema_nest")
+    expect_length(x$cols, 2)
+    expect_equal(x$cols[[2]]$type, "schema_nest")
+})
+
+test_that("sch_schema() with nested sch_nest() works", {
+    x <- sch_schema(
+        id = sch_integer(),
+        sch_nest(
+            group = sch_character(),
+            sch_nest(
+                item = sch_numeric(),
+                value = sch_numeric(),
+                .keys = "item",
+                .desc = "items"
+            ),
+            .keys = "group",
+            .desc = "groups"
+        )
+    )
+    expect_s3_class(x, "sch_schema")
+    expect_length(x$cols, 2)
+})
+
+test_that("sch_nest() .keys can only reference direct columns (not nested)", {
+    expect_error(
+        sch_nest(
+            group = sch_character(),
+            sch_nest(
+                item = sch_numeric(),
+                .keys = "item",
+                .desc = "items"
+            ),
+            .keys = c("group", "item"),
+            .desc = "invalid"
+        ),
+        "not found"
+    )
+})
+
+test_that("print.sch_schema() with multiple levels of nesting works", {
+    x <- sch_schema(
+        id = sch_integer(),
+        sch_nest(
+            group = sch_character(),
+            sch_nest(
+                item = sch_numeric(),
+                value = sch_numeric(),
+                .keys = "item",
+                .desc = "items"
+            ),
+            .keys = "group",
+            .desc = "groups"
+        )
+    )
+    expect_output(print(x), "schema")
+    # Check that indentation increases
+    output <- capture.output(print(x))
+    # Find the item line and ensure it's more indented than group
+    item_line <- grep("item", output)
+    group_line <- grep("group", output)
+    if (length(item_line) > 0 && length(group_line) > 0) {
+        item_indent <- nchar(output[item_line[1]]) - nchar(trimws(output[item_line[1]]))
+        group_indent <- nchar(output[group_line[1]]) - nchar(trimws(output[group_line[1]]))
+        expect_true(item_indent > group_indent)
+    }
+})
