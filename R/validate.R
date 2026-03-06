@@ -206,6 +206,7 @@ validate_types_missing <- function(cols, data, col_info, path) {
             per_col_ok <- TRUE
             for (col_nm in col_nms) {
                 if (!col_nm %in% names(data)) {
+                    per_col_ok <- FALSE
                     next
                 }
                 col_path <- c(path, col_nm)
