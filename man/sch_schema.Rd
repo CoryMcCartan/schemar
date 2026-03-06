@@ -15,12 +15,12 @@
 \alias{sch_custom}
 \title{Define a structured data type}
 \usage{
-sch_schema(...)
+sch_schema(..., .desc = NULL)
 
 sch_others()
 
 sch_numeric(
-  description = NULL,
+  desc = NULL,
   bounds = c(-Inf, Inf),
   closed = c(TRUE, TRUE),
   missing = TRUE,
@@ -28,27 +28,21 @@ sch_numeric(
 )
 
 sch_integer(
-  description = NULL,
+  desc = NULL,
   bounds = c(-Inf, Inf),
   closed = c(TRUE, TRUE),
   missing = TRUE,
   required = TRUE
 )
 
-sch_logical(description = NULL, missing = TRUE, required = TRUE)
+sch_logical(desc = NULL, missing = TRUE, required = TRUE)
 
-sch_character(description = NULL, missing = TRUE, required = TRUE)
+sch_character(desc = NULL, missing = TRUE, required = TRUE)
 
-sch_factor(
-  description = NULL,
-  levels,
-  strict = TRUE,
-  missing = TRUE,
-  required = TRUE
-)
+sch_factor(desc = NULL, levels, strict = TRUE, missing = TRUE, required = TRUE)
 
 sch_date(
-  description = NULL,
+  desc = NULL,
   bounds = c(as.Date(-Inf), as.Date(Inf)),
   closed = c(FALSE, FALSE),
   missing = TRUE,
@@ -56,20 +50,20 @@ sch_date(
 )
 
 sch_datetime(
-  description = NULL,
+  desc = NULL,
   bounds = c(as.POSIXct(-Inf), as.POSIXct(Inf)),
   closed = c(FALSE, FALSE),
   missing = TRUE,
   required = TRUE
 )
 
-sch_inherits(description = NULL, class, missing = TRUE, required = TRUE)
+sch_inherits(desc = NULL, class, missing = TRUE, required = TRUE)
 
-sch_list_of(description = NULL, class, missing = TRUE, required = TRUE)
+sch_list_of(desc = NULL, class, missing = TRUE, required = TRUE)
 
 sch_custom(
   name,
-  description = NULL,
+  desc = NULL,
   check,
   msg,
   coerce,
@@ -81,16 +75,21 @@ sch_custom(
 \arguments{
 \item{...}{Column specifications, in the form of \code{col_name = col_type} pairs,
 where \code{col_type} is a call to a column type constructor listed here, such
-as \code{sch_numeric()}. Every type must be a type of vector, i.e.,
+as \code{sch_numeric()}. Every type must be a kind of vector, i.e.,
 \code{\link[vctrs:vector-checks]{vctrs::obj_is_vector()}} must return \code{TRUE}.
+
+All columns must be named, except for \code{sch_others()}, as described below,
+and \code{sch_flat()}, which describes a set of columns which are logically
+nested within the outer columns but are not nested in the actual data frame.
+
 The special function \code{sch_others()} indicates the preferred location of
 other columns not explicitly mentioned in the schema. If no \code{sch_others()}
 appears, then other columns are not allowed.
 Trailing commas are permitted.}
 
-\item{description}{A description of the column for consumers of the schema.
+\item{desc, .desc}{A description of the column for consumers of the schema.
 The type contraints will be described separately and do not need to be
-included in the description.  For example for "age", the description might
+included in the description.  For example for "age", the descriptoin might
 be "Age of the patient in years", not "Non-negative integer representing
 the age of the patient in years".}
 
@@ -167,6 +166,7 @@ to the check, error, and coercion functions.
 }}
 \examples{
 sch_schema(
+    .desc = "Student data",
     age = sch_integer("Age in years", bounds = c(0, 130)),
     birthday = sch_date("Date of birth", required = FALSE),
     height = sch_numeric(
@@ -177,6 +177,15 @@ sch_schema(
     teacher = sch_factor(levels = c("Jones", "Smith", "Hernandez")),
     enrolled = sch_logical(missing = FALSE),
     sch_others()
+)
+
+sch_schema(
+    .desc = "MCMC draws",
+    draw = sch_integer("Draw number", bounds = c(1, Inf), closed = c(TRUE, FALSE)),
+    contents = sch_schema(
+       param = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
+       value = sch_numeric("Parameter value"),
+    )
 )
 
 sch_custom(

@@ -65,7 +65,7 @@ type_fns = list(
                     "vec-last" = ", or "
                 )
             )
-            cli::format_inline("factor. One of {.strong {levs}}")
+            cli::format_inline("factor; one of {.strong {levs}}")
         },
         coerce = function(x, type) {
             factor(x, levels = type$levels)

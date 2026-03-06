@@ -6,16 +6,31 @@
 #'
 #' @param ... Column specifications, in the form of `col_name = col_type` pairs,
 #'   where `col_type` is a call to a column type constructor listed here, such
-#'   as `sch_numeric()`. Every type must be a type of vector, i.e.,
+#'   as `sch_numeric()`. Every type must be a kind of vector, i.e.,
 #'   [vctrs::obj_is_vector()] must return `TRUE`.
+#'
+#'   All columns must be named, except for `sch_others()`, as described below,
+#'   and `sch_flat()`, which describes a set of columns which are logically
+#'   nested within the outer columns but are not nested in the actual data frame.
+#'
 #'   The special function `sch_others()` indicates the preferred location of
 #'   other columns not explicitly mentioned in the schema. If no `sch_others()`
 #'   appears, then other columns are not allowed.
 #'   Trailing commas are permitted.
+#' @param desc,.desc A description of the column for consumers of the schema.
+#'   The type contraints will be described separately and do not need to be
+#'   included in the description.  For example for "age", the descriptoin might
+#'   be "Age of the patient in years", not "Non-negative integer representing
+#'   the age of the patient in years".
+#' @param missing If `TRUE`, the column may be contain missing values. Otherwise,
+#'   any missing values result in an error.
+#' @param required If `TRUE`, the column must be present. If `FALSE`, the column
+#'   is optional.
 #'
 #' @returns An object of class `sch_schema`,
 #' @examples
 #' sch_schema(
+#'     .desc = "Student data",
 #'     age = sch_integer("Age in years", bounds = c(0, 130)),
 #'     birthday = sch_date("Date of birth", required = FALSE),
 #'     height = sch_numeric(
@@ -28,6 +43,15 @@
 #'     sch_others()
 #' )
 #'
+#' sch_schema(
+#'     .desc = "MCMC draws",
+#'     draw = sch_integer("Draw number", bounds = c(1, Inf), closed = c(TRUE, FALSE)),
+#'     contents = sch_schema(
+#'        param = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
+#'        value = sch_numeric("Parameter value"),
+#'     )
+#' )
+#'
 #' sch_custom(
 #'    name = "even",
 #'    check = function(x, type) is.integer(x) && all(x %% 2 == 0),
@@ -35,8 +59,8 @@
 #'    coerce = function(x, type) (as.integer(x) %/% 2) * 2
 #' )
 #' @export
-sch_schema <- function(...) {
-    cols = rlang::list2(...)
+sch_schema <- function(..., .desc = NULL) {
+    cols = rlang::dots_list(..., .homonyms = "error", .check_assign = TRUE)
 
     if (!all(vapply(cols, inherits, FALSE, what = "sch_type"))) {
         rlang::abort("All columns must be specified using a column type constructor.")
@@ -60,17 +84,20 @@ sch_schema <- function(...) {
     }
 
     structure(
-        cols,
-        class = "sch_schema"
+        list(type = "schema_flat", cols = cols),
+        desc = check_desc(.desc),
+        missing = FALSE,
+        required = TRUE,
+        class = c("sch_schema", "sch_type")
     )
 }
 
 #' @export
 format.sch_schema <- function(x, ansi = FALSE, ...) {
-    out = character(length(x))
-    names(out) = names(x)
-    for (i in seq_along(x)) {
-        tt = x[[i]]
+    out = character(length(x$cols))
+    names(out) = names(x$cols)
+    for (i in seq_along(x$cols)) {
+        tt = x$cols[[i]]
         fmt = format(tt, ansi = ansi)
         if (tt$type == "other") {
             out[i] = fmt
@@ -88,11 +115,15 @@ format.sch_schema <- function(x, ansi = FALSE, ...) {
         }
         out[i] = unname(fmt)
     }
+    attr(out, "desc") = attr(x, "desc")
     out
 }
 #' @export
 print.sch_schema <- function(x, ...) {
-    n_req = sum(vapply(x, function(y) attr(y, "required"), FALSE))
+    if (!is.null(attr(x, "desc"))) {
+        cat(cli::style_bold(attr(x, "desc")), "\n")
+    }
+    n_req = sum(vapply(x$cols, function(y) attr(y, "required"), FALSE))
     cat(cli::col_grey("A schema with ", n_req, " required columns:"), "\n", sep = "")
     fmt = format(x, ansi = TRUE)
     nms = names(fmt)
@@ -117,7 +148,7 @@ format.sch_type <- function(x, ansi = FALSE, ...) {
     }
     a_an = if (grepl("^[aeiou]", msg)) "An " else "A "
     out = paste0(a_an, msg)
-    names(out) = attr(x, "description")
+    names(out) = attr(x, "desc")
     out
 }
 #' @export
@@ -130,6 +161,7 @@ print.sch_type <- function(x, ...) {
     }
 }
 
+
 #' @describeIn sch_schema A placeholder for other non-required columns in a schema.
 #' @export
 sch_others <- function() {
@@ -139,21 +171,12 @@ sch_others <- function() {
 #' @describeIn sch_schema A numeric vector that is optionally constrained to be
 #'   within a certain range.
 #'
-#' @param description A description of the column for consumers of the schema.
-#'   The type contraints will be described separately and do not need to be
-#'   included in the description.  For example for "age", the description might
-#'   be "Age of the patient in years", not "Non-negative integer representing
-#'   the age of the patient in years".
 #' @param bounds, Length-two vector `c(min, max)` specifying the allowed range of values.
 #' @param closed Length-two logical vector specifying whether the bounds are
 #'   closed (inclusive) or open (exclusive).
-#' @param missing If `TRUE`, the column may be contain missing values. Otherwise,
-#'   any missing values result in an error.
-#' @param required If `TRUE`, the column must be present. If `FALSE`, the column
-#'   is optional.
 #' @export
 sch_numeric <- function(
-    description = NULL,
+    desc = NULL,
     bounds = c(-Inf, Inf),
     closed = c(TRUE, TRUE),
     missing = TRUE,
@@ -163,7 +186,7 @@ sch_numeric <- function(
 
     structure(
         list(type = "numeric", bounds = bounds, closed = closed),
-        description = check_desc(description),
+        desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
         class = "sch_type"
@@ -175,7 +198,7 @@ sch_numeric <- function(
 #'   within a certain range.
 #' @export
 sch_integer <- function(
-    description = NULL,
+    desc = NULL,
     bounds = c(-Inf, Inf),
     closed = c(TRUE, TRUE),
     missing = TRUE,
@@ -185,7 +208,7 @@ sch_integer <- function(
 
     structure(
         list(type = "integer", bounds = bounds, closed = closed),
-        description = check_desc(description),
+        desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
         class = "sch_type"
@@ -194,10 +217,10 @@ sch_integer <- function(
 
 #' @describeIn sch_schema A logical vector.
 #' @export
-sch_logical <- function(description = NULL, missing = TRUE, required = TRUE) {
+sch_logical <- function(desc = NULL, missing = TRUE, required = TRUE) {
     structure(
         list(type = "logical"),
-        description = check_desc(description),
+        desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
         class = "sch_type"
@@ -206,10 +229,10 @@ sch_logical <- function(description = NULL, missing = TRUE, required = TRUE) {
 
 #' @describeIn sch_schema A character vector.
 #' @export
-sch_character <- function(description = NULL, missing = TRUE, required = TRUE) {
+sch_character <- function(desc = NULL, missing = TRUE, required = TRUE) {
     structure(
         list(type = "character"),
-        description = check_desc(description),
+        desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
         class = "sch_type"
@@ -222,7 +245,7 @@ sch_character <- function(description = NULL, missing = TRUE, required = TRUE) {
 #'   If `FALSE`, character vectors with the specified levels are also accepted.
 #' @export
 sch_factor <- function(
-    description = NULL,
+    desc = NULL,
     levels,
     strict = TRUE,
     missing = TRUE,
@@ -233,7 +256,7 @@ sch_factor <- function(
     }
     structure(
         list(type = "factor", levels = levels),
-        description = check_desc(description),
+        desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
         class = "sch_type"
@@ -244,7 +267,7 @@ sch_factor <- function(
 #'   within a certain range.
 #' @export
 sch_date <- function(
-    description = NULL,
+    desc = NULL,
     bounds = c(as.Date(-Inf), as.Date(Inf)),
     closed = c(FALSE, FALSE),
     missing = TRUE,
@@ -254,7 +277,7 @@ sch_date <- function(
 
     structure(
         list(type = "date", bounds = bounds, closed = closed),
-        description = check_desc(description),
+        desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
         class = "sch_type"
@@ -264,7 +287,7 @@ sch_date <- function(
 #'   within a certain range.
 #' @export
 sch_datetime <- function(
-    description = NULL,
+    desc = NULL,
     bounds = c(as.POSIXct(-Inf), as.POSIXct(Inf)),
     closed = c(FALSE, FALSE),
     missing = TRUE,
@@ -274,7 +297,7 @@ sch_datetime <- function(
 
     structure(
         list(type = "datetime", bounds = bounds, closed = closed),
-        description = check_desc(description),
+        desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
         class = "sch_type"
@@ -285,10 +308,10 @@ sch_datetime <- function(
 #' @param class A character vector of class names.
 #'
 #' @export
-sch_inherits <- function(description = NULL, class, missing = TRUE, required = TRUE) {
+sch_inherits <- function(desc = NULL, class, missing = TRUE, required = TRUE) {
     structure(
         list(type = "inherits", class = as.character(class)),
-        description = check_desc(description),
+        desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
         class = "sch_type"
@@ -297,10 +320,10 @@ sch_inherits <- function(description = NULL, class, missing = TRUE, required = T
 
 #' @describeIn sch_schema A vector satisfying `inherits(_, class)`.
 #' @export
-sch_list_of <- function(description = NULL, class, missing = TRUE, required = TRUE) {
+sch_list_of <- function(desc = NULL, class, missing = TRUE, required = TRUE) {
     structure(
         list(type = "list_of", class = as.character(class)),
-        description = check_desc(description),
+        desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
         class = "sch_type"
@@ -324,7 +347,7 @@ sch_list_of <- function(description = NULL, class, missing = TRUE, required = TR
 #' @export
 sch_custom <- function(
     name,
-    description = NULL,
+    desc = NULL,
     check,
     msg,
     coerce,
@@ -368,7 +391,7 @@ sch_custom <- function(
             coerce = coerce,
             !!!extras
         ),
-        description = check_desc(description),
+        desc = check_desc(desc),
         missing = isTRUE(missing),
         required = isTRUE(required),
         class = "sch_type"
@@ -388,6 +411,6 @@ check_desc = function(desc) {
     } else if (is.character(desc) && length(desc) == 1) {
         desc
     } else {
-        rlang::abort("{.arg description} must be NULL or a single string.", call = parent.frame())
+        rlang::abort("{.arg desc} must be NULL or a single string.", call = parent.frame())
     }
 }

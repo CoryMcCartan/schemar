@@ -4,8 +4,8 @@ test_that("sch_schema() returns correct class and structure", {
         name = sch_character()
     )
     expect_s3_class(x, "sch_schema")
-    expect_length(x, 2)
-    expect_named(x, c("age", "name"))
+    expect_length(x$cols, 2)
+    expect_named(x$cols, c("age", "name"))
 })
 
 test_that("sch_schema() allows trailing commas", {
@@ -18,9 +18,9 @@ test_that("sch_schema() allows trailing commas", {
 
 test_that("sch_schema() allows sch_others()", {
     x <- sch_schema(a = sch_numeric(), sch_others())
-    expect_length(x, 2)
+    expect_length(x$cols, 2)
     # sch_others() has no name
-    expect_equal(names(x)[2], "")
+    expect_equal(names(x$cols)[2], "")
 })
 
 test_that("sch_schema() errors on non-sch_type columns", {
@@ -74,7 +74,7 @@ test_that("sch_numeric() returns correct structure", {
     expect_equal(x$type, "numeric")
     expect_equal(x$bounds, c(0, 10))
     expect_equal(x$closed, c(TRUE, FALSE))
-    expect_equal(attr(x, "description"), "A number")
+    expect_equal(attr(x, "desc"), "A number")
     expect_true(attr(x, "missing"))
     expect_true(attr(x, "required"))
 })
@@ -83,7 +83,7 @@ test_that("sch_numeric() defaults: infinite bounds, both closed, missing/require
     x <- sch_numeric()
     expect_equal(x$bounds, c(-Inf, Inf))
     expect_equal(x$closed, c(TRUE, TRUE))
-    expect_null(attr(x, "description"))
+    expect_null(attr(x, "desc"))
     expect_true(attr(x, "missing"))
     expect_true(attr(x, "required"))
 })
@@ -100,7 +100,7 @@ test_that("sch_logical() returns correct structure", {
     x <- sch_logical("Flag", missing = FALSE)
     expect_s3_class(x, "sch_type")
     expect_equal(x$type, "logical")
-    expect_equal(attr(x, "description"), "Flag")
+    expect_equal(attr(x, "desc"), "Flag")
     expect_false(attr(x, "missing"))
     expect_true(attr(x, "required"))
 })
@@ -242,8 +242,9 @@ test_that("sch_custom() errors on wrong function signatures", {
 test_that("sch_custom() errors on unnamed extra arguments", {
     # description must be explicitly named so the unnamed value lands in ...
     expect_error(
-        sch_custom("mytype",
-            description = NULL,
+        sch_custom(
+            "mytype",
+            desc = NULL,
             check = function(x, type) TRUE,
             msg = function(type) "x",
             coerce = function(x, type) x,
@@ -266,10 +267,10 @@ test_that("sch_custom() stores extra named arguments", {
 # description validation -------------------------------------------------
 
 test_that("description must be NULL or a single string", {
-    expect_no_error(sch_numeric(description = NULL))
-    expect_no_error(sch_numeric(description = "some text"))
-    expect_error(sch_numeric(description = c("a", "b")))
-    expect_error(sch_numeric(description = 123))
+    expect_no_error(sch_numeric(desc = NULL))
+    expect_no_error(sch_numeric(desc = "some text"))
+    expect_error(sch_numeric(desc = c("a", "b")))
+    expect_error(sch_numeric(desc = 123))
 })
 
 # format methods ---------------------------------------------------------
