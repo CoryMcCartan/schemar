@@ -199,10 +199,10 @@ within a certain range.
 
 \item \code{sch_list_of()}: A vector satisfying \verb{inherits(_, class)}.
 
-\item \code{sch_custom()}: A custom type defined by user-provided check, error,
+\item \code{sch_custom()}: A custom type defined by user-provided check, type message,
 and coercion functions. Additional named values to be stored along with the
 type specification may be passed via \code{...} and will be available to the
-check, error, and coercion functions.
+check, message, and coercion function as elements of the \code{type} argument.
 
 }}
 \examples{

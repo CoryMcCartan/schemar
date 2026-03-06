@@ -339,10 +339,10 @@ sch_list_of <- function(desc = NULL, class, missing = TRUE, required = TRUE, dis
     )
 }
 
-#' @describeIn sch_schema A custom type defined by user-provided check, error,
+#' @describeIn sch_schema A custom type defined by user-provided check, type message,
 #'   and coercion functions. Additional named values to be stored along with the
 #'   type specification may be passed via `...` and will be available to the
-#'   check, error, and coercion functions.
+#'   check, message, and coercion function as elements of the `type` argument.
 #' @param name A name for the custom type.
 #' @param check A two-argument function that checks whether an object satisfies
 #'   the type. The first argument is the object to check, and the second is the
