@@ -11,8 +11,8 @@
 #'   - `"types"`: check column types and missing-value (`NA`) constraints.
 #'   - `"distinct"`: check uniqueness constraints for columns marked
 #'     `distinct = TRUE`. Relatively expensive.
-#'   - `"nesting"`: validate nested schema columns (flat and named nests),
-#'     including key consistency. Relatively expensive.
+#'   - `"relationships"`: validate relationship formulas (primary-key uniqueness
+#'     and crossing/nesting completeness). Relatively expensive.
 #' @param call The environment or call used for error reporting, passed to
 #'   [rlang::abort()]. Useful when wrapping `sch_validate()` inside another
 #'   function so that the error points to the right place.
@@ -64,7 +64,7 @@ sch_validate <- function(
     if ("distinct" %in% check) {
         issues <- c(issues, validate_distinct(schema$cols, data, col_info))
     }
-    if (any(c("names", "types", "distinct", "relationships") %in% check)) {
+    if (any(c("names", "types", "distinct") %in% check)) {
         issues <- c(issues, validate_nests(schema$cols, data, col_info, check))
     }
     if ("relationships" %in% check) {
@@ -88,98 +88,150 @@ classify_columns <- function(cols) {
     is_multiple <- vapply(cols, function(x) x$type == "schema_multiple", FALSE)
     nms <- names(cols) %||% rep("", length(cols))
     is_named_nest <- is_nest & nzchar(nms)
-    current_col_names <- nms[!is_nest & !is_other & !is_multiple]
 
     list(
         nms = nms,
         is_other = is_other,
         is_nest = is_nest,
         is_multiple = is_multiple,
-        is_named_nest = is_named_nest,
-        current_col_names = current_col_names
+        is_named_nest = is_named_nest
     )
 }
 
 
-validate_names <- function(cols, data, col_info, path) {
-    if (missing(path)) {
-        path <- character(0)
-    }
+validate_names <- function(cols, data, col_info, path = character(0)) {
     issues <- list()
+    groups_attr <- attr(data, "sch_groups")
 
-    # Gather expected column names and detect missing required non-nest columns
+    if (any(col_info$is_multiple) && is.null(groups_attr)) {
+        issues <- c(issues, list(make_issue("missing_sch_groups", path)))
+    }
+
     expected_names <- character(0)
-    for (i in seq_along(cols)) {
-        if (col_info$is_other[i]) {
-            next
-        }
+    for (i in which(!col_info$is_other)) {
         if (col_info$is_multiple[i]) {
-            tt <- cols[[i]]
-            groups_attr <- attr(data, "sch_groups")
-            if (is.null(groups_attr)) {
-                issues <- c(issues, list(make_issue("missing_sch_groups", path)))
-            } else if (!tt$name %in% names(groups_attr)) {
-                issues <- c(
-                    issues,
-                    list(make_issue("missing_group", path, name = tt$name))
-                )
-            } else {
-                col_nms <- groups_attr[[tt$name]]
-                if (length(col_nms) == 0 && isTRUE(attr(tt, "required"))) {
-                    issues <- c(
-                        issues,
-                        list(make_issue("empty_group", path, name = tt$name))
-                    )
-                }
-                expected_names <- c(expected_names, col_nms)
-                inner_type_msg <- type_fns[[tt$inner$type]]$msg(tt$inner)
-                a_an <- if (grepl("^[aeiou]", inner_type_msg)) "An " else "A "
-                expected_str <- paste0(a_an, inner_type_msg)
-                for (col_nm in col_nms) {
-                    if (!col_nm %in% names(data)) {
-                        issues <- c(
-                            issues,
-                            list(make_issue(
-                                "missing_column",
-                                c(path, col_nm),
-                                expected = expected_str
-                            ))
-                        )
-                    }
-                }
+            if (!is.null(groups_attr)) {
+                res <- check_multiple_names(cols[[i]], data, groups_attr, path)
+                issues <- c(issues, res$issues)
+                expected_names <- c(expected_names, res$expected_nms)
             }
         } else {
             col_nm <- col_info$nms[i]
             expected_names <- c(expected_names, col_nm)
             if (
                 !col_info$is_named_nest[i] &&
-                    !col_nm %in% names(data) &&
-                    isTRUE(attr(cols[[i]], "required"))
+                    isTRUE(attr(cols[[i]], "required")) &&
+                    !col_nm %in% names(data)
             ) {
-                expected_type <- type_fns[[cols[[i]]$type]]$msg(cols[[i]])
-                issues <- c(
-                    issues,
-                    list(make_issue("missing_column", c(path, col_nm), expected = expected_type))
+                new_issue = make_issue(
+                    "missing_column",
+                    c(path, col_nm),
+                    expected = a_an_msg(cols[[i]])
                 )
+                issues <- c(issues, list(new_issue))
             }
         }
     }
 
-    # Check for extra columns
-    extra <- setdiff(names(data), expected_names)
-    has_others <- any(col_info$is_other)
-    if (length(extra) > 0 && !has_others) {
-        issues <- c(issues, list(make_issue("extra_columns", path, columns = extra)))
+    if (!any(col_info$is_other)) {
+        extra <- setdiff(names(data), expected_names)
+        if (length(extra) > 0) {
+            issues <- c(issues, list(make_issue("extra_columns", path, columns = extra)))
+        }
     }
 
     issues
 }
 
 
-validate_types_missing <- function(cols, data, col_info, path) {
-    if (missing(path)) {
-        path <- character(0)
+check_multiple_names <- function(tt, data, groups_attr, path) {
+    if (!tt$name %in% names(groups_attr)) {
+        return(list(
+            issues = list(make_issue("missing_group", path, name = tt$name)),
+            expected_nms = character(0)
+        ))
     }
+
+    col_nms <- groups_attr[[tt$name]]
+    issues <- list()
+    if (length(col_nms) == 0 && isTRUE(attr(tt, "required"))) {
+        issues <- c(issues, list(make_issue("empty_group", path, name = tt$name)))
+    }
+    for (col_nm in col_nms[!col_nms %in% names(data)]) {
+        new_issue <- make_issue(
+            "missing_column",
+            c(path, col_nm),
+            expected = a_an_msg(tt$inner)
+        )
+        issues <- c(issues, list(new_issue))
+    }
+
+    list(issues = issues, expected_nms = col_nms)
+}
+
+
+validate_types_missing <- function(cols, data, col_info, path = character(0)) {
+    issues <- list()
+    groups_attr <- attr(data, "sch_groups")
+
+    for (i in which(!col_info$is_other & !col_info$is_nest)) {
+        if (col_info$is_multiple[i]) {
+            issues <- c(issues, check_multiple_types(cols[[i]], data, groups_attr, path))
+        } else {
+            col_nm <- col_info$nms[i]
+            if (col_nm %in% names(data)) {
+                issues <- c(
+                    issues,
+                    check_col_type_and_na(data[[col_nm]], cols[[i]], c(path, col_nm))
+                )
+            }
+        }
+    }
+
+    issues
+}
+
+
+check_multiple_types <- function(tt, data, groups_attr, path) {
+    if (is.null(groups_attr) || !tt$name %in% names(groups_attr)) {
+        return(list())
+    }
+    col_nms <- groups_attr[[tt$name]]
+    if (length(col_nms) == 0) {
+        return(list())
+    }
+
+    issues <- list()
+    per_col_ok <- TRUE
+    for (col_nm in col_nms) {
+        if (!col_nm %in% names(data)) {
+            per_col_ok <- FALSE
+            next
+        }
+        col_issues <- check_col_type_and_na(data[[col_nm]], tt$inner, c(path, col_nm))
+        issues <- c(issues, col_issues)
+        if (length(col_issues) > 0) per_col_ok <- FALSE
+    }
+
+    if (per_col_ok && !is.null(tt$cross_check)) {
+        present_nms <- intersect(col_nms, names(data))
+        col_list <- stats::setNames(lapply(present_nms, function(nm) data[[nm]]), present_nms)
+        if (!isTRUE(tt$cross_check(col_list, tt))) {
+            new_issue <- make_issue(
+                "cross_check_failed",
+                path,
+                name = tt$name,
+                expected = tt$cross_msg(tt)
+            )
+            issues <- c(issues, list(new_issue))
+        }
+    }
+
+    issues
+}
+
+
+validate_distinct <- function(cols, data, col_info, path = character(0)) {
     issues <- list()
 
     for (i in seq_along(cols)) {
@@ -189,117 +241,26 @@ validate_types_missing <- function(cols, data, col_info, path) {
 
         if (col_info$is_multiple[i]) {
             tt <- cols[[i]]
+            if (!isTRUE(attr(tt$inner, "distinct"))) {
+                next
+            }
             groups_attr <- attr(data, "sch_groups")
             if (is.null(groups_attr) || !tt$name %in% names(groups_attr)) {
                 next
             }
-            col_nms <- groups_attr[[tt$name]]
-            if (length(col_nms) == 0) {
-                next
-            }
-
-            # Per-column type and missing checks
-            per_col_ok <- TRUE
-            for (col_nm in col_nms) {
+            for (col_nm in groups_attr[[tt$name]]) {
                 if (!col_nm %in% names(data)) {
-                    per_col_ok <- FALSE
                     next
                 }
-                col_path <- c(path, col_nm)
                 x <- data[[col_nm]]
-                inner <- tt$inner
-
-                if (!isTRUE(type_fns[[inner$type]]$check(x, inner))) {
-                    expected <- type_fns[[inner$type]]$msg(inner)
-                    a_an <- if (grepl("^[aeiou]", expected)) "An " else "A "
-                    issues <- c(
-                        issues,
-                        list(make_issue("wrong_type", col_path, expected = paste0(a_an, expected)))
-                    )
-                    per_col_ok <- FALSE
-                }
-
-                if (!attr(inner, "missing")) {
-                    is_missing <- if (is.list(x)) {
-                        anyNA(x) || any(vapply(x, is.null, logical(1)))
-                    } else {
-                        anyNA(x)
-                    }
-                    if (is_missing) {
-                        issues <- c(issues, list(make_issue("has_na", col_path)))
-                        per_col_ok <- FALSE
-                    }
-                }
-            }
-
-            # Cross-column check (only when all per-column checks passed)
-            if (per_col_ok && !is.null(tt$cross_check)) {
-                present_nms <- intersect(col_nms, names(data))
-                col_list <- stats::setNames(lapply(present_nms, function(nm) data[[nm]]), present_nms)
-                if (!isTRUE(tt$cross_check(col_list, tt))) {
-                    cross_msg <- tt$cross_msg(tt)
-                    issues <- c(
-                        issues,
-                        list(make_issue(
-                            "cross_check_failed",
-                            path,
-                            name = tt$name,
-                            expected = cross_msg
-                        ))
-                    )
+                x_obs <- x[!is.na(x)]
+                if (vctrs::vec_unique_count(x_obs) != vctrs::vec_size(x_obs)) {
+                    issues <- c(issues, list(make_issue("not_distinct", c(path, col_nm))))
                 }
             }
             next
         }
 
-        tt <- cols[[i]]
-        col_nm <- col_info$nms[i]
-        col_path <- c(path, col_nm)
-
-        # Skip columns that don't exist (missing required column check is in validate_names)
-        if (!col_nm %in% names(data)) {
-            next
-        }
-
-        x <- data[[col_nm]]
-
-        # Check type
-        if (!isTRUE(type_fns[[tt$type]]$check(x, tt))) {
-            expected <- type_fns[[tt$type]]$msg(tt)
-            a_an = if (grepl("^[aeiou]", expected)) "An " else "A "
-            issues <- c(
-                issues,
-                list(make_issue("wrong_type", col_path, expected = paste0(a_an, expected)))
-            )
-        }
-
-        # Check missing values (NULLs in list-columns also count as missing)
-        if (!attr(tt, "missing")) {
-            is_missing <- if (is.list(x)) {
-                anyNA(x) || any(vapply(x, is.null, logical(1)))
-            } else {
-                anyNA(x)
-            }
-            if (is_missing) {
-                issues <- c(issues, list(make_issue("has_na", col_path)))
-            }
-        }
-    }
-
-    issues
-}
-
-
-validate_distinct <- function(cols, data, col_info, path) {
-    if (missing(path)) {
-        path <- character(0)
-    }
-    issues <- list()
-
-    for (i in seq_along(cols)) {
-        if (col_info$is_other[i] || col_info$is_nest[i] || col_info$is_multiple[i]) {
-            next
-        }
         tt <- cols[[i]]
         if (!attr(tt, "distinct")) {
             next
@@ -321,19 +282,14 @@ validate_distinct <- function(cols, data, col_info, path) {
 }
 
 
-validate_nests <- function(cols, data, col_info, check, path) {
-    if (missing(path)) {
-        path <- character(0)
-    }
+validate_nests <- function(cols, data, col_info, check, path = character(0)) {
     issues <- list()
 
-    for (i in seq_along(cols)) {
-        if (col_info$is_named_nest[i]) {
-            issues <- c(
-                issues,
-                validate_named_nest(cols[[i]], col_info$nms[i], data, check, path)
-            )
-        }
+    for (i in which(col_info$is_named_nest)) {
+        issues <- c(
+            issues,
+            validate_named_nest(cols[[i]], col_info$nms[i], data, check, path)
+        )
     }
 
     issues
@@ -362,6 +318,7 @@ validate_named_nest <- function(nest, col_nm, data, check, path) {
     }
 
     # Validate each nested data frame element
+    inner_col_info <- classify_columns(nest$cols)
     for (idx in seq_along(x)) {
         elem <- x[[idx]]
         if (!is.data.frame(elem)) {
@@ -372,24 +329,23 @@ validate_named_nest <- function(nest, col_nm, data, check, path) {
             next
         }
 
-        col_info <- classify_columns(nest$cols)
         inner_issues <- list()
         if ("names" %in% check) {
             inner_issues <- c(
                 inner_issues,
-                validate_names(nest$cols, elem, col_info, col_path)
+                validate_names(nest$cols, elem, inner_col_info, col_path)
             )
         }
         if ("types" %in% check) {
             inner_issues <- c(
                 inner_issues,
-                validate_types_missing(nest$cols, elem, col_info, col_path)
+                validate_types_missing(nest$cols, elem, inner_col_info, col_path)
             )
         }
         if ("distinct" %in% check) {
             inner_issues <- c(
                 inner_issues,
-                validate_distinct(nest$cols, elem, col_info, col_path)
+                validate_distinct(nest$cols, elem, inner_col_info, col_path)
             )
         }
 
@@ -431,15 +387,13 @@ validate_relationships <- function(schema, data) {
     n_unique <- nrow(vctrs::vec_unique(key_data))
     if (n_unique != nrow(data)) {
         n_dup <- nrow(data) - n_unique
-        issues <- c(
-            issues,
-            list(make_issue(
-                "duplicate_key",
-                character(0),
-                columns = all_cols,
-                n_duplicates = n_dup
-            ))
+        new_issue <- make_issue(
+            "duplicate_key",
+            character(0),
+            columns = all_cols,
+            n_duplicates = n_dup
         )
+        issues <- c(issues, list(new_issue))
     }
 
     # 2. Recursively check crossing and nesting
@@ -473,13 +427,6 @@ validate_rel_cross <- function(node, data, group_cols) {
 
     if (length(group_cols) == 0) {
         issues <- c(issues, check_cross_completeness(data, child_cols))
-
-        # Recurse: each child gets siblings' columns as context
-        for (k in seq_along(children)) {
-            sibling_cols <- unique(unlist(child_cols[-k]))
-            new_group <- c(group_cols, sibling_cols)
-            issues <- c(issues, validate_rel_node(children[[k]], data, new_group))
-        }
     } else {
         grp_data <- data[group_cols]
         locs <- vctrs::vec_group_loc(grp_data)
@@ -488,13 +435,13 @@ validate_rel_cross <- function(node, data, group_cols) {
             sub <- vctrs::vec_slice(data, loc)
             issues <- c(issues, check_cross_completeness(sub, child_cols))
         }
+    }
 
-        # Recurse
-        for (k in seq_along(children)) {
-            sibling_cols <- unique(unlist(child_cols[-k]))
-            new_group <- c(group_cols, sibling_cols)
-            issues <- c(issues, validate_rel_node(children[[k]], data, new_group))
-        }
+    # Recurse: each child gets siblings' columns as context
+    for (k in seq_along(children)) {
+        sibling_cols <- unique(unlist(child_cols[-k]))
+        new_group <- c(group_cols, sibling_cols)
+        issues <- c(issues, validate_rel_node(children[[k]], data, new_group))
     }
 
     issues
@@ -519,7 +466,7 @@ check_cross_completeness <- function(data, child_cols) {
 
     if (actual < expected) {
         label <- paste(
-            vapply(child_cols, function(cc) paste(cc, collapse = "+"), ""),
+            vapply(child_cols, function(cc) paste(cc, collapse = " + "), ""),
             collapse = " \u00d7 "
         )
         return(list(make_issue(
@@ -539,7 +486,6 @@ check_cross_completeness <- function(data, child_cols) {
 validate_rel_nest <- function(node, data, group_cols) {
     issues <- list()
     outer_cols <- relationship_columns(node$outer)
-    inner_cols <- relationship_columns(node$inner)
 
     # Inner is scoped within outer: just add outer to group_cols and recurse
     new_group <- c(group_cols, outer_cols)
@@ -561,7 +507,7 @@ print_validation_issues <- function(issues, class = NULL, call = NULL) {
     if (is.null(class) || length(class) == 0) {
         class <- "Data"
     } else {
-        class = paste0("{.cls ", class, "}")
+        class = paste0("{.cls ", paste(class, collapse = "}/{.cls "), "}")
     }
 
     cli::cli_abort(
@@ -608,10 +554,10 @@ print_validation_issue <- function(issue) {
             "Data frame is missing the {.field sch_groups} attribute (required by {.fn sch_multiple})."
         ),
         missing_group = cli::format_inline(
-            "Group {.field {issue$name}} not found in the {.field sch_groups} attribute."
+            "Malformed attributes: group {.field {issue$name}} not found in {.field sch_groups}."
         ),
         empty_group = cli::format_inline(
-            "Group {.field {issue$name}} in {.field sch_groups} has no columns ({.code required = TRUE})."
+            "Malformed attributes: group {.field {issue$name}} in {.field sch_groups} is emptpy but {.code required = TRUE})."
         ),
         cross_check_failed = cli::format_inline(
             "Column group {.field {issue$name}} failed cross-column check. Expected {issue$expected}."
@@ -634,4 +580,28 @@ print_validation_issue <- function(issue) {
 
 make_issue <- function(type, path, ...) {
     c(list(type = type, path = path), list(...))
+}
+
+# Build "a <type description>" / "an <type description>" for a type object
+a_an_msg <- function(tt) {
+    msg <- type_fns[[tt$type]]$msg(tt)
+    paste0(if (grepl("^[aeiou]", msg)) "an " else "a ", msg)
+}
+
+# TRUE if a vector or list-column contains any NA / NULL elements
+has_missing <- function(x) {
+    if (is.list(x)) anyNA(x) || any(vapply(x, is.null, logical(1))) else anyNA(x)
+}
+
+# Type check + (gated) NA check for a single column vector
+check_col_type_and_na <- function(x, tt, col_path) {
+    issues <- list()
+    type_ok <- isTRUE(type_fns[[tt$type]]$check(x, tt))
+    if (!type_ok) {
+        issues <- c(issues, list(make_issue("wrong_type", col_path, expected = a_an_msg(tt))))
+    }
+    if (type_ok && !attr(tt, "missing") && has_missing(x)) {
+        issues <- c(issues, list(make_issue("has_na", col_path)))
+    }
+    issues
 }

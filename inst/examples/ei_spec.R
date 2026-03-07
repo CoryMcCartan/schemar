@@ -17,28 +17,23 @@ devtools::load_all()
 
 # Schema -----------------------------------------------------------------------
 
-sum_to_one <- function(x, type) {
-    row_sums <- Reduce("+", x)
-    all(abs(row_sums - 1) < 1e-6)
-}
-
 schema <- sch_schema(
     .desc = "Ecological inference specification",
     sch_multiple(
         name = "predictors",
         desc = "Racial composition shares",
         type = sch_numeric(bounds = c(0, 1), missing = FALSE),
-        check = sum_to_one,
-        msg = function(type) "numeric shares in [0, 1] summing to 1 per row",
+        check = function(x, type) {
+            row_sums <- Reduce("+", x)
+            all(abs(row_sums - 1) < 1e-6)
+        },
+        msg = function(type) "rows sum to 1",
         coerce = function(x, type) x
     ),
     sch_multiple(
         name = "outcomes",
         desc = "Vote share estimates",
-        type = sch_numeric(bounds = c(0, 1), missing = FALSE),
-        check = sum_to_one,
-        msg = function(type) "numeric shares in [0, 1] summing to 1 per row",
-        coerce = function(x, type) x
+        type = sch_numeric(missing = FALSE),
     ),
     total = sch_numeric("Total individuals per unit", bounds = c(1, Inf), missing = FALSE),
     sch_others()
@@ -48,7 +43,6 @@ print(schema)
 
 # Compliant data ---------------------------------------------------------------
 
-set.seed(42)
 n_units <- 50L
 
 # Generate Dirichlet-like composition data (rows sum exactly to 1)
@@ -71,6 +65,7 @@ df <- data.frame(
     # optional covariate
     income_med = runif(n_units, 30000, 120000)
 )
+class(df) <- c("ei_spec", "sch_df", "tbl_df", "tbl", "data.frame")
 
 attr(df, "sch_groups") <- list(
     predictors = c("vap_white", "vap_black", "vap_other"),
@@ -154,31 +149,5 @@ bad9 <- df
 bad9$pres_dem <- as.character(bad9$pres_dem)
 tryCatch(
     sch_validate(schema, bad9),
-    error = function(e) message(conditionMessage(e))
-)
-
-cat("\n--- Corruption 10: extra column without sch_others() ---\n")
-schema_no_others <- sch_schema(
-    .desc = "Ecological inference specification (strict: no extra columns)",
-    sch_multiple(
-        name = "predictors",
-        desc = "Racial composition shares",
-        type = sch_numeric(bounds = c(0, 1), missing = FALSE),
-        check = sum_to_one,
-        msg = function(type) "numeric shares in [0, 1] summing to 1 per row",
-        coerce = function(x, type) x
-    ),
-    sch_multiple(
-        name = "outcomes",
-        desc = "Vote share estimates",
-        type = sch_numeric(bounds = c(0, 1), missing = FALSE),
-        check = sum_to_one,
-        msg = function(type) "numeric shares in [0, 1] summing to 1 per row",
-        coerce = function(x, type) x
-    ),
-    total = sch_numeric("Total individuals per unit", bounds = c(1, Inf), missing = FALSE)
-)
-tryCatch(
-    sch_validate(schema_no_others, df),
     error = function(e) message(conditionMessage(e))
 )

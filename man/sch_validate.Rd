@@ -23,8 +23,8 @@ default runs all checks. Possible values:
 \item \code{"types"}: check column types and missing-value (\code{NA}) constraints.
 \item \code{"distinct"}: check uniqueness constraints for columns marked
 \code{distinct = TRUE}. Relatively expensive.
-\item \code{"nesting"}: validate nested schema columns (flat and named nests),
-including key consistency. Relatively expensive.
+\item \code{"relationships"}: validate relationship formulas (primary-key uniqueness
+and crossing/nesting completeness). Relatively expensive.
 }}
 
 \item{call}{The environment or call used for error reporting, passed to

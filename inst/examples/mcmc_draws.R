@@ -14,7 +14,7 @@ schema <- sch_schema(
     draw = sch_integer("Draw number within chain", bounds = c(1, Inf)),
     param = sch_factor(
         "Parameter name",
-        levels = c("mu", "sigma", "log_lik"),
+        levels = c("mu", paste0("beta", 1:20), "sigma", "log_lik"),
         strict = FALSE
     ),
     value = sch_numeric("Parameter draw value")
@@ -25,10 +25,9 @@ print(schema)
 # Compliant data ---------------------------------------------------------------
 
 n_chains <- 4L
-n_draws <- 100L
-params <- c("mu", "sigma", "log_lik")
+n_draws <- 10000L
+params <- c("mu", paste0("beta", 1:20), "sigma", "log_lik")
 
-set.seed(42)
 draws_df <- expand.grid(
     chain = seq_len(n_chains),
     draw = seq_len(n_draws),
@@ -40,6 +39,7 @@ draws_df$draw <- as.integer(draws_df$draw)
 draws_df$param <- factor(draws_df$param, levels = params)
 draws_df$value <- c(
     rnorm(n_chains * n_draws), # mu draws
+    rnorm(n_chains * n_draws * 20, 0, 0.5), # beta draws
     abs(rnorm(n_chains * n_draws, 1, 0.2)), # sigma draws (positive)
     rnorm(n_chains * n_draws, -200, 10) # log_lik draws
 )
@@ -87,7 +87,7 @@ tryCatch(
     error = function(e) message(conditionMessage(e))
 )
 
-cat("\n--- Corruption 5: out-of-bounds chain number (chain = 0) ---\n")
+cat("\n--- Corruption 5: out-of-bounds draw number (draw = 0) ---\n")
 bad5 <- draws_df
 bad5$draw[bad5$chain == 1L & bad5$draw == 1L] <- 0L
 tryCatch(

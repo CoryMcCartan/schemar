@@ -5,7 +5,7 @@
 #   /Users/cmccartan/Documents/Consulting/cbs/enightmodels/R/format.R
 #
 # Relationship structure:
-#   (state + election + jurisdiction + contest + district) / (geo * (party / candidate) * time * method)
+#   (state + election + jurisdiction + contest + district) / (geo * (party / candidate)) / (time * method)
 #
 # The RACE_ID is a compound key of (state, election, jurisdiction, contest, district).
 # Within each race, geo × party × time × method are fully crossed.
@@ -17,36 +17,11 @@ devtools::load_all()
 
 STATES <- c(state.abb, "DC")
 
-CONTESTS <- c(
-    "pres",
-    "sen",
-    "house",
-    "gov",
-    "ag",
-    "ltgov",
-    "stsen",
-    "sthouse",
-    "mayor",
-    "prop",
-    "pres_dem",
-    "pres_rep",
-    "sen_dem",
-    "sen_rep",
-    "house_dem",
-    "house_rep",
-    "gov_dem",
-    "gov_rep",
-    "ag_dem",
-    "ag_rep",
-    "ltgov_dem",
-    "ltgov_rep",
-    "stsen_dem",
-    "stsen_rep",
-    "sthouse_dem",
-    "sthouse_rep",
-    "mayor_dem",
-    "mayor_rep"
-)
+# fmt: skip
+CONTESTS <- c("pres", "sen", "house", "gov", "ag", "ltgov", "stsen", "sthouse",
+    "mayor", "prop", "pres_dem", "pres_rep", "sen_dem", "sen_rep", "house_dem",
+    "house_rep", "gov_dem", "gov_rep", "ag_dem", "ag_rep", "ltgov_dem", "ltgov_rep",
+    "stsen_dem", "stsen_rep", "sthouse_dem", "sthouse_rep", "mayor_dem", "mayor_rep")
 
 PARTIES <- c("dem", "rep", "ind", "oth", "all", "yes", "no")
 
@@ -67,7 +42,8 @@ sch_stage <- sch_custom(
 schema_elec <- sch_schema(
     .desc = "Tidy election data",
     .relationships = ~ (state + election + jurisdiction + contest + district) /
-        (geo * (party / candidate) * time * method),
+        (geo * (party / candidate)) /
+        (time * method),
     # --- Race identifier columns ---
     state = sch_factor("State USPS abbreviation", levels = STATES, strict = FALSE, missing = FALSE),
     election = sch_date("Election date", missing = FALSE),
@@ -83,6 +59,12 @@ schema_elec <- sch_schema(
     # --- Outcome columns (not in relationship formula) ---
     stage = sch_stage,
     votes = sch_numeric("Vote count", bounds = c(0, Inf), missing = FALSE),
+    past = sch_numeric(
+        "Past election vote baseline",
+        bounds = c(0, Inf),
+        missing = FALSE,
+        required = FALSE
+    ),
     sch_others()
 )
 
@@ -121,6 +103,7 @@ make_race_geo <- function(state, geo, base_votes) {
         )
 }
 
+
 df <- rbind(
     make_race_geo("NJ", "34001", 12000),
     make_race_geo("NJ", "34003", 22000),
@@ -134,6 +117,13 @@ print(head(df, 12))
 cat("\nValidating compliant data...\n")
 sch_validate(schema_elec, df)
 cat("OK\n")
+
+d_nj = enightmodels::nj
+d_nj$jurisdiction = as.character(d_nj$jurisdiction)
+d_nj$geo = as.character(d_nj$geo)
+d_nj$candidate = as.character(d_nj$candidate)
+sch_validate(schema_elec, d_nj)
+
 
 # Corruptions ------------------------------------------------------------------
 
@@ -164,6 +154,7 @@ cat("\n--- Corruption 6: incomplete crossing (missing candidate in one geo) ---\
 # Drop all Trump rows in NJ/34003 → party × candidate × time × method incomplete
 bad6 <- df[!(df$geo == "34003" & df$party == "rep"), ]
 tryCatch(sch_validate(schema_elec, bad6), error = function(e) message(conditionMessage(e)))
+tryCatch(sch_validate(schema_elec, d_nj[-3, ]), error = function(e) message(conditionMessage(e)))
 
 cat("\n--- Corruption 7: incomplete crossing (one geo has extra time snapshot) ---\n")
 extra <- make_race_geo("NJ", "34001", 18000)

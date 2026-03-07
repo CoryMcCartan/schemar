@@ -275,7 +275,7 @@ test_that("missing required named nest column raises error", {
     expect_error(sch_validate(schema, df), "Required.*missing")
 })
 
-test_that("optional named nest column can be absent", {
+test_that("required named nest column must be present", {
     # sch_nest() does not have a `required` parameter in its constructor,
     # so named nests are always required by default. This test verifies that
     # a missing required named nest raises an error.
@@ -775,7 +775,7 @@ test_that("relationships: three-way crossing missing combo raises error", {
     df$value <- seq_len(nrow(df))
     # Remove last row
     df <- df[-nrow(df), ]
-    expect_error(sch_validate(schema, df), "combinations|crossing|incomplete|duplicate")
+    expect_error(sch_validate(schema, df), "combinations|crossing|incomplete")
 })
 
 # .relationships validation: nesting ------------------------------------
@@ -975,4 +975,22 @@ test_that("relationships: no formula means check='relationships' is a no-op", {
     )
     df <- data.frame(a = 1L, b = "x")
     expect_no_error(sch_validate(schema, df, check = "relationships"))
+})
+
+test_that("relationships: NAs in formula columns are treated as distinct values", {
+    # NA is treated as a distinct value by vctrs::vec_unique, so a column
+    # with NA can cause incomplete-crossing errors even if non-NA values are complete.
+    schema <- sch_schema(
+        .relationships = ~ a * b,
+        a = sch_integer(),
+        b = sch_character()
+    )
+    # Complete crossing for non-NA combos, but NA in a inflates unique count
+    df <- data.frame(
+        a = c(1L, 1L, 2L, 2L, NA_integer_),
+        b = c("x", "y", "x", "y", "x")
+    )
+    # NA in `a` means 3 unique values of a (1, 2, NA) but only 5 rows,
+    # not the 3*2=6 expected for a full crossing — raises an error.
+    expect_error(sch_validate(schema, df), "incomplete|combinations|crossing")
 })

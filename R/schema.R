@@ -112,7 +112,7 @@ sch_schema <- function(..., .desc = NULL, .relationships = NULL) {
         rel_col_names = relationship_columns(rel_tree)
 
         # All regular (non-nest, non-other, non-multiple) column names
-        regular_names = names(cols)[!is_other & !is_multiple]
+        regular_names = names(cols)[!is_other & !is_multiple & !is_nest]
 
         bad_names = setdiff(rel_col_names, regular_names)
         if (length(bad_names) > 0) {
@@ -352,18 +352,34 @@ format_relationship <- function(tree) {
     switch(
         tree$type,
         var = tree$name,
-        cross = paste(vapply(tree$children, format_relationship, ""), collapse = " \u00d7 "),
+        cross = paste(
+            vapply(tree$children, fmt_rel_child, "", parent_type = "cross"),
+            collapse = " \u00d7 "
+        ),
         compound = {
             inner = paste(vapply(tree$children, format_relationship, ""), collapse = " + ")
             paste0("(", inner, ")")
         },
         nest = {
-            outer_str = format_relationship(tree$outer)
-            inner_str = format_relationship(tree$inner)
+            outer_str = fmt_rel_child(tree$outer, "nest")
+            inner_str = fmt_rel_child(tree$inner, "nest")
             paste0(outer_str, " / ", inner_str)
         },
         rlang::abort(paste0("Unknown relationship node type: ", tree$type))
     )
+}
+
+# Format a child node, adding parens when the child type conflicts with the parent type
+# (cross child that is a nest node, or nest child that is a cross node)
+fmt_rel_child <- function(child, parent_type) {
+    s <- format_relationship(child)
+    needs_parens <- switch(
+        parent_type,
+        cross = child$type == "nest",
+        nest = child$type == "cross",
+        FALSE
+    )
+    if (needs_parens) paste0("(", s, ")") else s
 }
 
 
@@ -868,11 +884,21 @@ print.sch_schema <- function(x, ...) {
         cum_indent[l + 1L] = cum_indent[l] + w_by_lvl[l] + 2L
     }
 
+    console_w = cli::console_width()
     for (i in seq_along(fmt)) {
         l = lvls[i]
         indent = strrep(" ", cum_indent[l + 1L])
         lbl = cli::ansi_align(cli::col_green(nms[i]), width = w_by_lvl[l + 1L], align = "right")
-        cat(indent, lbl, "  ", fmt[i], "\n", sep = "")
+        prefix_width = cum_indent[l + 1L] + w_by_lvl[l + 1L] + 2L
+        text_width = max(20L, console_w - prefix_width)
+        lines = cli::ansi_strwrap(fmt[i], width = text_width)
+        cat(indent, lbl, "  ", lines[1L], "\n", sep = "")
+        if (length(lines) > 1L) {
+            cont_indent = strrep(" ", prefix_width)
+            for (j in seq_len(length(lines) - 1L) + 1L) {
+                cat(cont_indent, lines[j], "\n", sep = "")
+            }
+        }
     }
 
     # Print relationships if present
@@ -923,7 +949,7 @@ format.sch_type <- function(x, ansi = FALSE, capitalize = TRUE, ...) {
 print.sch_type <- function(x, ...) {
     fmt = format(x, ansi = TRUE)
     if (!is.null(names(fmt))) {
-        cat(names(fmt), "\n", fmt, "\n", sep = "")
+        cat(names(fmt), ": ", fmt, "\n", sep = "")
     } else {
         cat(fmt, "\n", sep = "")
     }
