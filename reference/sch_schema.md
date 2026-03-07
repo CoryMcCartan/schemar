@@ -11,6 +11,8 @@ sch_schema(..., .desc = NULL, .relationships = NULL)
 
 sch_others()
 
+sch_any(desc = NULL, missing = TRUE, required = TRUE, distinct = FALSE)
+
 sch_multiple(
   name,
   type,
@@ -130,15 +132,6 @@ sch_custom(
   to create compound keys (bundling columns into a single identifier).
   See the examples below.
 
-- name:
-
-  A name for the custom type.
-
-- type:
-
-  A column type constructor (e.g. `sch_numeric()`) specifying the
-  expected type of every column in the group.
-
 - desc, .desc:
 
   A description of the column for consumers of the schema. The type
@@ -147,11 +140,30 @@ sch_custom(
   "Age of the patient in years", not "Non-negative integer representing
   the age of the patient in years".
 
+- missing:
+
+  If `TRUE`, the column may be contain missing values. Otherwise, any
+  missing values result in an error.
+
 - required:
 
   If `TRUE` (default), the group entry in `sch_groups` must contain at
   least one column name. If `FALSE`, an empty character vector for that
   entry is also accepted.
+
+- distinct:
+
+  If `TRUE`, the column must contain no duplicate values (after
+  accounting for nesting structure).
+
+- name:
+
+  A name for the custom type.
+
+- type:
+
+  A column type constructor (e.g. `sch_numeric()`) specifying the
+  expected type of every column in the group.
 
 - check:
 
@@ -180,16 +192,6 @@ sch_custom(
   Length-two logical vector specifying whether the bounds are closed
   (inclusive) or open (exclusive).
 
-- missing:
-
-  If `TRUE`, the column may be contain missing values. Otherwise, any
-  missing values result in an error.
-
-- distinct:
-
-  If `TRUE`, the column must contain no duplicate values (after
-  accounting for nesting structure).
-
 - levels:
 
   A character vector of factor levels, or NULL not enforce specific
@@ -213,6 +215,8 @@ An object of class `sch_schema`,
 
 - `sch_others()`: A placeholder for other non-required columns in a
   schema.
+
+- `sch_any()`: A column of any type. No type checking is performed.
 
 - `sch_multiple()`: A group of multiple columns sharing the same type.
   The group is identified by `name`, which must appear as an entry in
@@ -263,28 +267,6 @@ An object of class `sch_schema`,
 
 ``` r
 sch_schema(
-    .desc = "Student data",
-    age = sch_integer("Age in years", bounds = c(0, 130)),
-    birthday = sch_date("Date of birth", required = FALSE),
-    height = sch_numeric(
-        "Height in inches",
-        bounds = c(0, 108),
-        closed = c(FALSE, TRUE)
-    ),
-    teacher = sch_factor(levels = c("Jones", "Smith", "Hernandez")),
-    enrolled = sch_logical(missing = FALSE),
-    sch_others()
-)
-#> Student data
-#> A schema with 4 required elements:
-#>      age  Age in years: An integer vector with values in [0, 130].
-#> birthday  (optional) Date of birth: A date vector.
-#>   height  Height in inches: A numeric vector with values in (0, 108].
-#>  teacher  A factor; one of Jones, Smith, or Hernandez.
-#> enrolled  A logical vector. No NAs allowed.
-#>      ...  Other columns
-
-sch_schema(
     .desc = "MCMC draws",
     .relationships = ~ chain * draw * parameter,
     chain = sch_integer("Chain number"),
@@ -299,6 +281,51 @@ sch_schema(
 #> parameter  Parameter name: A factor; one of mu, sigma, or log_lik.
 #>     value  Parameter value: A numeric vector.
 #> Relationships: chain × draw × parameter
+
+sch_schema(
+    .desc = "Student data",
+    .relationships = ~ (grade + teacher) / table_group,
+    birthday = sch_date("Date of birth", required = FALSE),
+    height = sch_numeric(
+        "Height in inches",
+        bounds = c(0, 108),
+        closed = c(FALSE, TRUE)
+    ),
+    grade = sch_factor(strict = FALSE, levels = c("Kindergarten", "1st", "2nd")),
+    teacher = sch_nest(
+        first = sch_character("First name"),
+        last = sch_character("Last name")
+    ),
+    table_group = sch_integer(bounds=c(1, 6)),
+    enrolled = sch_logical(missing = FALSE),
+    sch_others()
+)
+#> Student data
+#> A schema with 5 required elements:
+#>    birthday  (optional) Date of birth: A date vector.
+#>      height  Height in inches: A numeric vector with values in (0, 108].
+#>       grade  A factor or character; one of Kindergarten, 1st, or 2nd.
+#>     teacher  (nested):
+#>              first  First name: A character vector.
+#>               last  Last name: A character vector.
+#> table_group  An integer vector with values in [1, 6].
+#>    enrolled  A logical vector. No NAs allowed.
+#>         ...  Other columns
+#> Relationships: (grade + teacher) / table_group
+
+sch_schema(
+    .desc = "Causal inference data",
+    treatment = sch_factor(levels = c("control", "treatment"), missing = FALSE),
+    outcome = sch_numeric(missing = FALSE),
+    sch_multiple("covariates", type = sch_any(missing = FALSE), required = FALSE),
+    sch_others()
+)
+#> Causal inference data
+#> A schema with 2 required elements:
+#>  treatment  A factor; one of control or treatment. No NAs allowed.
+#>    outcome  A numeric vector. No NAs allowed.
+#> covariates  (multiple; optional): each a vector of any type. No NAs allowed.
+#>        ...  Other columns
 
 sch_custom(
    name = "even",

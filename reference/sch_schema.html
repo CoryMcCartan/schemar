@@ -47,6 +47,8 @@ Schemas support nesting relationships.</p>
 <span></span>
 <span><span class="fu">sch_others</span><span class="op">(</span><span class="op">)</span></span>
 <span></span>
+<span><span class="fu">sch_any</span><span class="op">(</span>desc <span class="op">=</span> <span class="cn">NULL</span>, missing <span class="op">=</span> <span class="cn">TRUE</span>, required <span class="op">=</span> <span class="cn">TRUE</span>, distinct <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
+<span></span>
 <span><span class="fu">sch_multiple</span><span class="op">(</span></span>
 <span>  <span class="va">name</span>,</span>
 <span>  <span class="va">type</span>,</span>
@@ -164,15 +166,6 @@ compound keys (bundling columns into a single identifier).
 See the examples below.</p></dd>
 
 
-<dt id="arg-name">name<a class="anchor" aria-label="anchor" href="#arg-name"></a></dt>
-<dd><p>A name for the custom type.</p></dd>
-
-
-<dt id="arg-type">type<a class="anchor" aria-label="anchor" href="#arg-type"></a></dt>
-<dd><p>A column type constructor (e.g. <code>sch_numeric()</code>) specifying the
-expected type of every column in the group.</p></dd>
-
-
 <dt id="arg-desc-desc">desc, .desc<a class="anchor" aria-label="anchor" href="#arg-desc-desc"></a></dt>
 <dd><p>A description of the column for consumers of the schema.
 The type contraints will be described separately and do not need to be
@@ -181,10 +174,29 @@ be "Age of the patient in years", not "Non-negative integer representing
 the age of the patient in years".</p></dd>
 
 
+<dt id="arg-missing">missing<a class="anchor" aria-label="anchor" href="#arg-missing"></a></dt>
+<dd><p>If <code>TRUE</code>, the column may be contain missing values. Otherwise,
+any missing values result in an error.</p></dd>
+
+
 <dt id="arg-required">required<a class="anchor" aria-label="anchor" href="#arg-required"></a></dt>
 <dd><p>If <code>TRUE</code> (default), the group entry in <code>sch_groups</code> must
 contain at least one column name. If <code>FALSE</code>, an empty character vector
 for that entry is also accepted.</p></dd>
+
+
+<dt id="arg-distinct">distinct<a class="anchor" aria-label="anchor" href="#arg-distinct"></a></dt>
+<dd><p>If <code>TRUE</code>, the column must contain no duplicate values (after
+accounting for nesting structure).</p></dd>
+
+
+<dt id="arg-name">name<a class="anchor" aria-label="anchor" href="#arg-name"></a></dt>
+<dd><p>A name for the custom type.</p></dd>
+
+
+<dt id="arg-type">type<a class="anchor" aria-label="anchor" href="#arg-type"></a></dt>
+<dd><p>A column type constructor (e.g. <code>sch_numeric()</code>) specifying the
+expected type of every column in the group.</p></dd>
 
 
 <dt id="arg-check">check<a class="anchor" aria-label="anchor" href="#arg-check"></a></dt>
@@ -213,16 +225,6 @@ type specification.</p></dd>
 closed (inclusive) or open (exclusive).</p></dd>
 
 
-<dt id="arg-missing">missing<a class="anchor" aria-label="anchor" href="#arg-missing"></a></dt>
-<dd><p>If <code>TRUE</code>, the column may be contain missing values. Otherwise,
-any missing values result in an error.</p></dd>
-
-
-<dt id="arg-distinct">distinct<a class="anchor" aria-label="anchor" href="#arg-distinct"></a></dt>
-<dd><p>If <code>TRUE</code>, the column must contain no duplicate values (after
-accounting for nesting structure).</p></dd>
-
-
 <dt id="arg-levels">levels<a class="anchor" aria-label="anchor" href="#arg-levels"></a></dt>
 <dd><p>A character vector of factor levels, or NULL not enforce specific levels.</p></dd>
 
@@ -244,6 +246,7 @@ If <code>FALSE</code>, character vectors with the specified levels are also acce
     <h2 id="functions">Functions<a class="anchor" aria-label="anchor" href="#functions"></a></h2>
 
 <ul><li><p><code>sch_others()</code>: A placeholder for other non-required columns in a schema.</p></li>
+<li><p><code>sch_any()</code>: A column of any type. No type checking is performed.</p></li>
 <li><p><code>sch_multiple()</code>: A group of multiple columns sharing the same type. The
 group is identified by <code>name</code>, which must appear as an entry in the
 <code>sch_groups</code> attribute of the data frame being validated. That entry is a
@@ -278,28 +281,6 @@ check, message, and coercion function as elements of the <code>type</code> argum
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
     <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="fu">sch_schema</span><span class="op">(</span></span></span>
-<span class="r-in"><span>    .desc <span class="op">=</span> <span class="st">"Student data"</span>,</span></span>
-<span class="r-in"><span>    age <span class="op">=</span> <span class="fu">sch_integer</span><span class="op">(</span><span class="st">"Age in years"</span>, bounds <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">130</span><span class="op">)</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>    birthday <span class="op">=</span> <span class="fu">sch_date</span><span class="op">(</span><span class="st">"Date of birth"</span>, required <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>    height <span class="op">=</span> <span class="fu">sch_numeric</span><span class="op">(</span></span></span>
-<span class="r-in"><span>        <span class="st">"Height in inches"</span>,</span></span>
-<span class="r-in"><span>        bounds <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">108</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>        closed <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="cn">FALSE</span>, <span class="cn">TRUE</span><span class="op">)</span></span></span>
-<span class="r-in"><span>    <span class="op">)</span>,</span></span>
-<span class="r-in"><span>    teacher <span class="op">=</span> <span class="fu">sch_factor</span><span class="op">(</span>levels <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"Jones"</span>, <span class="st">"Smith"</span>, <span class="st">"Hernandez"</span><span class="op">)</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>    enrolled <span class="op">=</span> <span class="fu">sch_logical</span><span class="op">(</span>missing <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>    <span class="fu">sch_others</span><span class="op">(</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="font-weight: bold;">Student data</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #555555;">A schema with 4 required elements:</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>      <span style="color: #00BB00;">age</span>  Age in years: An integer vector with values in [0, 130].</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #00BB00;">birthday</span>  <span style="color: #555555;">(optional)</span> Date of birth: A date vector.</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>   <span style="color: #00BB00;">height</span>  Height in inches: A numeric vector with values in (0, 108].</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>  <span style="color: #00BB00;">teacher</span>  A factor; one of <span style="font-weight: bold;">Jones</span>, <span style="font-weight: bold;">Smith</span>, or <span style="font-weight: bold;">Hernandez</span>.</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #00BB00;">enrolled</span>  A logical vector. No NAs allowed.</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>      <span style="color: #00BB00;">...</span>  <span style="font-style: italic;">Other columns</span></span>
-<span class="r-in"><span></span></span>
-<span class="r-in"><span><span class="fu">sch_schema</span><span class="op">(</span></span></span>
 <span class="r-in"><span>    .desc <span class="op">=</span> <span class="st">"MCMC draws"</span>,</span></span>
 <span class="r-in"><span>    .relationships <span class="op">=</span> <span class="op">~</span> <span class="va">chain</span> <span class="op">*</span> <span class="va">draw</span> <span class="op">*</span> <span class="va">parameter</span>,</span></span>
 <span class="r-in"><span>    chain <span class="op">=</span> <span class="fu">sch_integer</span><span class="op">(</span><span class="st">"Chain number"</span><span class="op">)</span>,</span></span>
@@ -314,6 +295,51 @@ check, message, and coercion function as elements of the <code>type</code> argum
 <span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #00BB00;">parameter</span>  Parameter name: A factor; one of <span style="font-weight: bold;">mu</span>, <span style="font-weight: bold;">sigma</span>, or <span style="font-weight: bold;">log_lik</span>.</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>     <span style="color: #00BB00;">value</span>  Parameter value: A numeric vector.</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #555555;">Relationships:</span> <span style="font-style: italic;">chain × draw × parameter</span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="fu">sch_schema</span><span class="op">(</span></span></span>
+<span class="r-in"><span>    .desc <span class="op">=</span> <span class="st">"Student data"</span>,</span></span>
+<span class="r-in"><span>    .relationships <span class="op">=</span> <span class="op">~</span> <span class="op">(</span><span class="va">grade</span> <span class="op">+</span> <span class="va">teacher</span><span class="op">)</span> <span class="op">/</span> <span class="va">table_group</span>,</span></span>
+<span class="r-in"><span>    birthday <span class="op">=</span> <span class="fu">sch_date</span><span class="op">(</span><span class="st">"Date of birth"</span>, required <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    height <span class="op">=</span> <span class="fu">sch_numeric</span><span class="op">(</span></span></span>
+<span class="r-in"><span>        <span class="st">"Height in inches"</span>,</span></span>
+<span class="r-in"><span>        bounds <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">108</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>        closed <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="cn">FALSE</span>, <span class="cn">TRUE</span><span class="op">)</span></span></span>
+<span class="r-in"><span>    <span class="op">)</span>,</span></span>
+<span class="r-in"><span>    grade <span class="op">=</span> <span class="fu">sch_factor</span><span class="op">(</span>strict <span class="op">=</span> <span class="cn">FALSE</span>, levels <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"Kindergarten"</span>, <span class="st">"1st"</span>, <span class="st">"2nd"</span><span class="op">)</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    teacher <span class="op">=</span> <span class="fu">sch_nest</span><span class="op">(</span></span></span>
+<span class="r-in"><span>        first <span class="op">=</span> <span class="fu">sch_character</span><span class="op">(</span><span class="st">"First name"</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>        last <span class="op">=</span> <span class="fu">sch_character</span><span class="op">(</span><span class="st">"Last name"</span><span class="op">)</span></span></span>
+<span class="r-in"><span>    <span class="op">)</span>,</span></span>
+<span class="r-in"><span>    table_group <span class="op">=</span> <span class="fu">sch_integer</span><span class="op">(</span>bounds<span class="op">=</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">1</span>, <span class="fl">6</span><span class="op">)</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    enrolled <span class="op">=</span> <span class="fu">sch_logical</span><span class="op">(</span>missing <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    <span class="fu">sch_others</span><span class="op">(</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="op">)</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="font-weight: bold;">Student data</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #555555;">A schema with 5 required elements:</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>    <span style="color: #00BB00;">birthday</span>  <span style="color: #555555;">(optional)</span> Date of birth: A date vector.</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>      <span style="color: #00BB00;">height</span>  Height in inches: A numeric vector with values in (0, 108].</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>       <span style="color: #00BB00;">grade</span>  A factor or character; one of <span style="font-weight: bold;">Kindergarten</span>, <span style="font-weight: bold;">1st</span>, or <span style="font-weight: bold;">2nd</span>.</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>     <span style="color: #00BB00;">teacher</span>  <span style="color: #555555;">(nested)</span>:</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>              <span style="color: #00BB00;">first</span>  First name: A character vector.</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>               <span style="color: #00BB00;">last</span>  Last name: A character vector.</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #00BB00;">table_group</span>  An integer vector with values in [1, 6].</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>    <span style="color: #00BB00;">enrolled</span>  A logical vector. No NAs allowed.</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>         <span style="color: #00BB00;">...</span>  <span style="font-style: italic;">Other columns</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #555555;">Relationships:</span> <span style="font-style: italic;">(grade + teacher) / table_group</span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="fu">sch_schema</span><span class="op">(</span></span></span>
+<span class="r-in"><span>    .desc <span class="op">=</span> <span class="st">"Causal inference data"</span>,</span></span>
+<span class="r-in"><span>    treatment <span class="op">=</span> <span class="fu">sch_factor</span><span class="op">(</span>levels <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"control"</span>, <span class="st">"treatment"</span><span class="op">)</span>, missing <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    outcome <span class="op">=</span> <span class="fu">sch_numeric</span><span class="op">(</span>missing <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    <span class="fu">sch_multiple</span><span class="op">(</span><span class="st">"covariates"</span>, type <span class="op">=</span> <span class="fu">sch_any</span><span class="op">(</span>missing <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span>, required <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    <span class="fu">sch_others</span><span class="op">(</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="op">)</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="font-weight: bold;">Causal inference data</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #555555;">A schema with 2 required elements:</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  <span style="color: #00BB00;">treatment</span>  A factor; one of <span style="font-weight: bold;">control</span> or <span style="font-weight: bold;">treatment</span>. No NAs allowed.</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>    <span style="color: #00BB00;">outcome</span>  A numeric vector. No NAs allowed.</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #00BB00;">covariates</span>  <span style="color: #555555;">(multiple; optional)</span>: each a vector of any type. No NAs allowed.</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>        <span style="color: #00BB00;">...</span>  <span style="font-style: italic;">Other columns</span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="fu">sch_custom</span><span class="op">(</span></span></span>
 <span class="r-in"><span>   name <span class="op">=</span> <span class="st">"even"</span>,</span></span>
