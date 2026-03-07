@@ -177,7 +177,7 @@ test_that("unique values in distinct column pass", {
 test_that("omitting 'distinct' from check skips distinct checks", {
     schema <- sch_schema(x = sch_integer(distinct = TRUE))
     df <- data.frame(x = c(1L, 1L, 1L))
-    expect_no_error(sch_validate(schema, df, check = c("names", "types", "nesting")))
+    expect_no_error(sch_validate(schema, df, check = c("names", "types", "relationships")))
 })
 
 # Multiple issues --------------------------------------------------------
@@ -208,168 +208,6 @@ test_that("issues list is attached to the error condition", {
     expect_true(length(err$issues) >= 2)
 })
 
-# Flat nest validation ---------------------------------------------------
-
-test_that("flat nest validates inner columns", {
-    schema <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    df <- data.frame(
-        id = c(1L, 1L, 2L, 2L),
-        param = c("a", "b", "a", "b"),
-        value = c(1.1, 2.2, 3.3, 4.4)
-    )
-    expect_no_error(sch_validate(schema, df))
-})
-
-test_that("flat nest detects wrong type in inner column", {
-    schema <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    df <- data.frame(
-        id = c(1L, 1L),
-        param = c("a", "b"),
-        value = c("not", "numeric"),
-        stringsAsFactors = FALSE
-    )
-    expect_error(sch_validate(schema, df), "wrong type")
-})
-
-test_that("flat nest detects missing required inner column", {
-    schema <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    df <- data.frame(
-        id = c(1L, 1L),
-        param = c("a", "b")
-    )
-    expect_error(sch_validate(schema, df), "Required.*missing")
-})
-
-test_that("flat nest: outer column distinct after accounting for nesting", {
-    schema <- sch_schema(
-        id = sch_integer(distinct = TRUE),
-        sch_nest(
-            param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    # id repeats due to nesting but is distinct when collapsed
-    df <- data.frame(
-        id = c(1L, 1L, 2L, 2L),
-        param = c("a", "b", "a", "b"),
-        value = c(1.1, 2.2, 3.3, 4.4)
-    )
-    expect_no_error(sch_validate(schema, df))
-})
-
-test_that("flat nest: outer column not distinct raises error", {
-    schema <- sch_schema(
-        id = sch_integer(distinct = TRUE),
-        name = sch_character(),
-        sch_nest(
-            param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    # id=1 appears for two different names → not distinct among outer rows
-    df <- data.frame(
-        id = c(1L, 1L, 1L, 1L),
-        name = c("A", "A", "B", "B"),
-        param = c("a", "b", "a", "b"),
-        value = c(1.1, 2.2, 3.3, 4.4)
-    )
-    expect_error(sch_validate(schema, df), "duplicate")
-})
-
-test_that("flat nest: inner column distinct within each group", {
-    schema <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            param = sch_character(distinct = TRUE),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    # Within each id group, param is distinct
-    df <- data.frame(
-        id = c(1L, 1L, 2L, 2L),
-        param = c("a", "b", "a", "b"),
-        value = c(1.1, 2.2, 3.3, 4.4)
-    )
-    expect_no_error(sch_validate(schema, df))
-})
-
-test_that("flat nest: inner column not distinct within group raises error", {
-    schema <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            param = sch_character(distinct = TRUE),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    # param repeats within id=1 group
-    df <- data.frame(
-        id = c(1L, 1L, 1L, 2L, 2L),
-        param = c("a", "a", "b", "a", "b"),
-        value = c(1.1, 2.2, 3.3, 4.4, 5.5)
-    )
-    expect_error(sch_validate(schema, df), "duplicate")
-})
-
-test_that("flat nest: keys consistency check detects inconsistent keys", {
-    schema <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    # id=1 has params a,b but id=2 has only param a
-    df <- data.frame(
-        id = c(1L, 1L, 2L),
-        param = c("a", "b", "a"),
-        value = c(1.1, 2.2, 3.3)
-    )
-    expect_error(sch_validate(schema, df), "inconsistent")
-})
-
-test_that("flat nest: consistent keys pass", {
-    schema <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    df <- data.frame(
-        id = c(1L, 1L, 2L, 2L),
-        param = c("a", "b", "a", "b"),
-        value = c(1.1, 2.2, 3.3, 4.4)
-    )
-    expect_no_error(sch_validate(schema, df))
-})
-
 # Named nest validation --------------------------------------------------
 
 test_that("named nest validates nested data frames", {
@@ -377,8 +215,7 @@ test_that("named nest validates nested data frames", {
         id = sch_integer(),
         details = sch_nest(
             param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
+            value = sch_numeric()
         )
     )
     df <- data.frame(id = c(1L, 2L))
@@ -393,8 +230,7 @@ test_that("named nest detects non-data-frame element", {
     schema <- sch_schema(
         id = sch_integer(),
         details = sch_nest(
-            param = sch_character(),
-            .keys = "param"
+            param = sch_character()
         )
     )
     df <- data.frame(id = c(1L, 2L))
@@ -428,95 +264,29 @@ test_that("named nest detects wrong type in inner column", {
     expect_error(sch_validate(schema, df), "wrong type")
 })
 
-test_that("named nest detects inconsistent keys", {
-    schema <- sch_schema(
-        id = sch_integer(),
-        details = sch_nest(
-            param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    df <- data.frame(id = c(1L, 2L))
-    df$details <- list(
-        data.frame(param = c("a", "b"), value = c(1.1, 2.2)),
-        data.frame(param = c("a", "c"), value = c(3.3, 4.4))
-    )
-    expect_error(sch_validate(schema, df), "inconsistent")
-})
-
 test_that("missing required named nest column raises error", {
     schema <- sch_schema(
         id = sch_integer(),
         details = sch_nest(
-            param = sch_character(),
-            .keys = "param"
+            param = sch_character()
         )
     )
     df <- data.frame(id = 1L)
     expect_error(sch_validate(schema, df), "Required.*missing")
 })
 
-test_that("optional named nest column can be absent", {
+test_that("required named nest column must be present", {
     # sch_nest() does not have a `required` parameter in its constructor,
     # so named nests are always required by default. This test verifies that
     # a missing required named nest raises an error.
     schema <- sch_schema(
         id = sch_integer(),
         details = sch_nest(
-            param = sch_character(),
-            .keys = "param"
+            param = sch_character()
         )
     )
     df <- data.frame(id = 1L)
     expect_error(sch_validate(schema, df), "Required.*missing")
-})
-
-# Deep nesting -----------------------------------------------------------
-
-test_that("deeply nested flat schema validates correctly", {
-    schema <- sch_schema(
-        id = sch_integer(distinct = TRUE),
-        sch_nest(
-            group = sch_character(distinct = TRUE),
-            sch_nest(
-                item = sch_integer(distinct = TRUE),
-                value = sch_numeric(),
-                .keys = "item"
-            ),
-            .keys = "group"
-        )
-    )
-    df <- data.frame(
-        id = c(1L, 1L, 1L, 1L, 2L, 2L, 2L, 2L),
-        group = c("A", "A", "B", "B", "A", "A", "B", "B"),
-        item = c(1L, 2L, 1L, 2L, 1L, 2L, 1L, 2L),
-        value = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
-    )
-    expect_no_error(sch_validate(schema, df))
-})
-
-test_that("deep nesting detects non-distinct inner column", {
-    schema <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            group = sch_character(),
-            sch_nest(
-                item = sch_integer(distinct = TRUE),
-                value = sch_numeric(),
-                .keys = "item"
-            ),
-            .keys = "group"
-        )
-    )
-    # item repeats within (id=1, group="A")
-    df <- data.frame(
-        id = c(1L, 1L, 1L, 1L),
-        group = c("A", "A", "B", "B"),
-        item = c(1L, 1L, 1L, 2L),
-        value = c(0.1, 0.2, 0.3, 0.4)
-    )
-    expect_error(sch_validate(schema, df), "duplicate")
 })
 
 # Empty data frame -------------------------------------------------------
@@ -597,22 +367,6 @@ test_that('check="names" detects missing required named nest column', {
     expect_error(sch_validate(schema, df, check = "names"), "Required.*missing")
 })
 
-test_that('check="names" detects missing required inner column in flat nest', {
-    schema <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            param = sch_character(),
-            value = sch_numeric()
-        )
-    )
-    df <- data.frame(id = c(1L, 1L), param = c("a", "b"))
-    expect_error(
-        sch_validate(schema, df, check = "names"),
-        class = "sch_validation_error"
-    )
-    expect_error(sch_validate(schema, df, check = "names"), "Required.*missing")
-})
-
 # Regression tests: custom type checks with NAs ----
 
 test_that("NA-unaware custom check with NA input raises sch_validation_error", {
@@ -679,112 +433,6 @@ test_that("distinct=TRUE, missing=TRUE detects duplicate non-NA values", {
     expect_error(sch_validate(schema, df), "duplicate")
 })
 
-# Regression tests: flat nest edge cases ----
-
-test_that("flat nest with single outer group: key consistency passes", {
-    schema <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    df <- data.frame(
-        id = c(1L, 1L),
-        param = c("a", "b"),
-        value = c(1.1, 2.2)
-    )
-    expect_no_error(sch_validate(schema, df))
-})
-
-test_that("flat nest: single group inner distinct=TRUE is still enforced", {
-    schema <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            param = sch_character(distinct = TRUE),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    df <- data.frame(
-        id = c(1L, 1L, 1L),
-        param = c("a", "a", "b"),
-        value = c(1.1, 2.2, 3.3)
-    )
-    expect_error(sch_validate(schema, df), "duplicate")
-})
-
-test_that("flat nest: only one group violates inner distinct", {
-    schema <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            param = sch_character(distinct = TRUE),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    df <- data.frame(
-        id = c(1L, 1L, 1L, 2L, 2L),
-        param = c("a", "a", "b", "a", "b"),
-        value = c(1.1, 2.2, 3.3, 4.4, 5.5)
-    )
-    expect_error(sch_validate(schema, df), "duplicate")
-})
-
-test_that("flat nest: optional inner column may be absent", {
-    schema <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            param = sch_character(),
-            value = sch_numeric(required = FALSE)
-        )
-    )
-    df <- data.frame(
-        id = c(1L, 1L),
-        param = c("a", "b")
-    )
-    expect_no_error(sch_validate(schema, df))
-})
-
-test_that("flat nest: two outer distinct=TRUE columns both pre-collapsed", {
-    schema <- sch_schema(
-        id = sch_integer(distinct = TRUE),
-        code = sch_character(distinct = TRUE),
-        sch_nest(
-            param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    df <- data.frame(
-        id = c(1L, 1L, 2L, 2L),
-        code = c("A", "A", "B", "B"),
-        param = c("x", "y", "x", "y"),
-        value = c(1.0, 2.0, 3.0, 4.0)
-    )
-    expect_no_error(sch_validate(schema, df))
-})
-
-test_that("flat nest: outer column violates distinct after collapsing", {
-    schema <- sch_schema(
-        id = sch_integer(distinct = TRUE),
-        code = sch_character(distinct = TRUE),
-        sch_nest(
-            param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    df <- data.frame(
-        id = c(1L, 1L, 1L, 1L),
-        code = c("A", "A", "B", "B"),
-        param = c("x", "y", "x", "y"),
-        value = c(1.0, 2.0, 3.0, 4.0)
-    )
-    expect_error(sch_validate(schema, df), "duplicate")
-})
-
 # Regression tests: named nest completeness and inner distinct ----
 
 test_that("named nest: inner distinct=TRUE all satisfied", {
@@ -819,36 +467,17 @@ test_that("named nest: inner distinct=TRUE violation raises error", {
     expect_error(sch_validate(schema, df), "duplicate")
 })
 
-test_that("named nest with single element: key consistency trivially passes", {
+test_that("named nest with single element passes", {
     schema <- sch_schema(
         id = sch_integer(),
         details = sch_nest(
             param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
+            value = sch_numeric()
         )
     )
     df <- data.frame(id = 1L)
     df$details <- list(data.frame(param = c("a", "b"), value = c(1.1, 2.2)))
     expect_no_error(sch_validate(schema, df))
-})
-
-test_that("named nest: element missing key skipped, remaining inconsistency detected", {
-    schema <- sch_schema(
-        id = sch_integer(),
-        details = sch_nest(
-            param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
-        )
-    )
-    df <- data.frame(id = c(1L, 2L, 3L))
-    df$details <- list(
-        data.frame(param = c("a", "b"), value = c(1.1, 2.2)),
-        data.frame(value = c(3.3)),
-        data.frame(param = c("a", "c"), value = c(4.4, 5.5))
-    )
-    expect_error(sch_validate(schema, df), "inconsistent")
 })
 
 test_that("named nest: inner missing=FALSE rejects NA", {
@@ -894,4 +523,474 @@ test_that("named nest: zero-row elements pass", {
         data.frame(param = character(0), value = numeric(0))
     )
     expect_no_error(sch_validate(schema, df))
+})
+
+# sch_multiple() validation ----------------------------------------------
+
+test_that("sch_multiple: valid data with sch_groups passes", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric(bounds = c(0, 1)))
+    )
+    df <- data.frame(id = 1:3, trt_a = c(0.2, 0.5, 0.8), trt_b = c(0.8, 0.5, 0.2))
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("sch_multiple: missing sch_groups attribute raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    df <- data.frame(id = 1L, trt_a = 0.5)
+    # No sch_groups attribute
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "sch_groups")
+})
+
+test_that("sch_multiple: missing group name in sch_groups raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    df <- data.frame(id = 1L, trt_a = 0.5)
+    attr(df, "sch_groups") <- list(other_group = "trt_a")
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "trt")
+})
+
+test_that("sch_multiple: empty group with required=TRUE raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric(), required = TRUE)
+    )
+    df <- data.frame(id = 1L)
+    attr(df, "sch_groups") <- list(trt = character(0))
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
+test_that("sch_multiple: empty group with required=FALSE passes", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric(), required = FALSE)
+    )
+    df <- data.frame(id = 1L)
+    attr(df, "sch_groups") <- list(trt = character(0))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("sch_multiple: group column missing from data raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    df <- data.frame(id = 1L)
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"))
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "missing")
+})
+
+test_that("sch_multiple: wrong type in group column raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    df <- data.frame(id = 1:2, trt_a = c("x", "y"), trt_b = c(0.5, 0.6))
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"))
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "wrong type")
+})
+
+test_that("sch_multiple: NA in group column with inner missing=FALSE raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric(missing = FALSE))
+    )
+    df <- data.frame(id = 1:2, trt_a = c(0.5, NA), trt_b = c(0.5, 0.5))
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"))
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "missing values")
+})
+
+test_that("sch_multiple: cross-column check passes when valid", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(
+            name = "trt",
+            type = sch_numeric(bounds = c(0, 1)),
+            check = function(x, type) {
+                row_sums <- Reduce("+", x)
+                all(abs(row_sums - 1) < 1e-9)
+            },
+            msg = function(type) "set of values summing to 1",
+            coerce = function(x, type) x
+        )
+    )
+    df <- data.frame(id = 1:2, trt_a = c(0.3, 0.6), trt_b = c(0.7, 0.4))
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("sch_multiple: cross-column check failure raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(
+            name = "trt",
+            type = sch_numeric(bounds = c(0, 1)),
+            check = function(x, type) {
+                row_sums <- Reduce("+", x)
+                all(abs(row_sums - 1) < 1e-9)
+            },
+            msg = function(type) "set of values summing to 1",
+            coerce = function(x, type) x
+        )
+    )
+    df <- data.frame(id = 1:2, trt_a = c(0.3, 0.6), trt_b = c(0.3, 0.4))
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"))
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "trt|cross")
+})
+
+test_that("sch_multiple: group columns not flagged as extra", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    df <- data.frame(id = 1L, trt_a = 0.5, trt_b = 0.5)
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("sch_multiple: multiple groups in one schema all validated", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric(bounds = c(0, 1))),
+        sch_multiple(name = "lab", type = sch_character())
+    )
+    df <- data.frame(
+        id = 1:2,
+        trt_a = c(0.4, 0.6),
+        trt_b = c(0.6, 0.4),
+        lab_x = c("a", "b"),
+        lab_y = c("c", "d")
+    )
+    attr(df, "sch_groups") <- list(trt = c("trt_a", "trt_b"), lab = c("lab_x", "lab_y"))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("sch_multiple: check='names' detects missing sch_groups", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    df <- data.frame(id = 1L)
+    expect_error(
+        sch_validate(schema, df, check = "names"),
+        class = "sch_validation_error"
+    )
+})
+
+# .relationships validation: uniqueness ----------------------------------
+
+test_that("relationships: fully crossed data passes uniqueness check", {
+    schema <- sch_schema(
+        .relationships = ~ a * b,
+        a = sch_integer(),
+        b = sch_character(),
+        value = sch_numeric()
+    )
+    df <- data.frame(
+        a = c(1L, 1L, 2L, 2L),
+        b = c("x", "y", "x", "y"),
+        value = c(1.0, 2.0, 3.0, 4.0)
+    )
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("relationships: duplicate primary key raises error", {
+    schema <- sch_schema(
+        .relationships = ~ a * b,
+        a = sch_integer(),
+        b = sch_character(),
+        value = sch_numeric()
+    )
+    df <- data.frame(
+        a = c(1L, 1L, 2L, 2L),
+        b = c("x", "x", "x", "y"),
+        value = c(1.0, 2.0, 3.0, 4.0)
+    )
+    expect_error(sch_validate(schema, df), "duplicate")
+})
+
+# .relationships validation: crossing ------------------------------------
+
+test_that("relationships: incomplete crossing raises error", {
+    schema <- sch_schema(
+        .relationships = ~ a * b,
+        a = sch_integer(),
+        b = sch_character(),
+        value = sch_numeric()
+    )
+    # a has {1,2}, b has {"x","y"}, but missing (2,"y")
+    df <- data.frame(
+        a = c(1L, 1L, 2L),
+        b = c("x", "y", "x"),
+        value = c(1.0, 2.0, 3.0)
+    )
+    expect_error(sch_validate(schema, df), "combinations|crossing|incomplete")
+})
+
+test_that("relationships: three-way crossing complete data passes", {
+    schema <- sch_schema(
+        .relationships = ~ a * b * c,
+        a = sch_integer(),
+        b = sch_character(),
+        c = sch_factor(levels = c("p", "q")),
+        value = sch_numeric()
+    )
+    df <- expand.grid(
+        a = 1:2,
+        b = c("x", "y"),
+        c = factor(c("p", "q"), levels = c("p", "q")),
+        stringsAsFactors = FALSE
+    )
+    df$value <- seq_len(nrow(df))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("relationships: three-way crossing missing combo raises error", {
+    schema <- sch_schema(
+        .relationships = ~ a * b * c,
+        a = sch_integer(),
+        b = sch_character(),
+        c = sch_factor(levels = c("p", "q")),
+        value = sch_numeric()
+    )
+    df <- expand.grid(
+        a = 1:2,
+        b = c("x", "y"),
+        c = factor(c("p", "q"), levels = c("p", "q")),
+        stringsAsFactors = FALSE
+    )
+    df$value <- seq_len(nrow(df))
+    # Remove last row
+    df <- df[-nrow(df), ]
+    expect_error(sch_validate(schema, df), "combinations|crossing|incomplete")
+})
+
+# .relationships validation: nesting ------------------------------------
+
+test_that("relationships: nesting with different inner values per group passes", {
+    schema <- sch_schema(
+        .relationships = ~ a / b,
+        a = sch_integer(),
+        b = sch_character(),
+        value = sch_numeric()
+    )
+    # a=1 has b={"x","y"}, a=2 has b={"z"} — nesting allows different b per a
+    df <- data.frame(
+        a = c(1L, 1L, 2L),
+        b = c("x", "y", "z"),
+        value = c(1.0, 2.0, 3.0)
+    )
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("relationships: nesting still enforces (a,b) uniqueness", {
+    schema <- sch_schema(
+        .relationships = ~ a / b,
+        a = sch_integer(),
+        b = sch_character(),
+        value = sch_numeric()
+    )
+    # Duplicate (1, "x")
+    df <- data.frame(
+        a = c(1L, 1L, 2L),
+        b = c("x", "x", "z"),
+        value = c(1.0, 2.0, 3.0)
+    )
+    expect_error(sch_validate(schema, df), "duplicate")
+})
+
+# .relationships validation: compound keys --------------------------------
+
+test_that("relationships: compound key with crossing passes", {
+    schema <- sch_schema(
+        .relationships = ~ (a + b) * c,
+        a = sch_integer(),
+        b = sch_character(),
+        c = sch_factor(levels = c("p", "q")),
+        value = sch_numeric()
+    )
+    # (a,b) combos: (1,"x"), (2,"y"); c: {"p","q"}
+    df <- data.frame(
+        a = c(1L, 1L, 2L, 2L),
+        b = c("x", "x", "y", "y"),
+        c = factor(c("p", "q", "p", "q"), levels = c("p", "q")),
+        value = c(1.0, 2.0, 3.0, 4.0)
+    )
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("relationships: compound key missing crossing combo raises error", {
+    schema <- sch_schema(
+        .relationships = ~ (a + b) * c,
+        a = sch_integer(),
+        b = sch_character(),
+        c = sch_factor(levels = c("p", "q")),
+        value = sch_numeric()
+    )
+    # Only (1,"x","p") and (2,"y","q") — missing combos
+    df <- data.frame(
+        a = c(1L, 2L),
+        b = c("x", "y"),
+        c = factor(c("p", "q"), levels = c("p", "q")),
+        value = c(1.0, 2.0)
+    )
+    expect_error(sch_validate(schema, df), "combinations|crossing|incomplete")
+})
+
+# .relationships validation: hierarchical --------------------------------
+
+test_that("relationships: hierarchical a / (b * c) validates completeness within groups", {
+    schema <- sch_schema(
+        .relationships = ~ a / (b * c),
+        a = sch_integer(),
+        b = sch_character(),
+        c = sch_factor(levels = c("p", "q")),
+        value = sch_numeric()
+    )
+    # a=1: b x c fully crossed; a=2: b x c fully crossed (can differ)
+    df <- data.frame(
+        a = c(1L, 1L, 1L, 1L, 2L, 2L),
+        b = c("x", "x", "y", "y", "z", "z"),
+        c = factor(c("p", "q", "p", "q", "p", "q"), levels = c("p", "q")),
+        value = 1:6
+    )
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("relationships: hierarchical a / (b * c) detects incomplete crossing within group", {
+    schema <- sch_schema(
+        .relationships = ~ a / (b * c),
+        a = sch_integer(),
+        b = sch_character(),
+        c = sch_factor(levels = c("p", "q")),
+        value = sch_numeric()
+    )
+    # a=1: b={"x","y"}, c={"p","q"}, but missing (y,q)
+    df <- data.frame(
+        a = c(1L, 1L, 1L, 2L, 2L),
+        b = c("x", "x", "y", "z", "z"),
+        c = factor(c("p", "q", "p", "p", "q"), levels = c("p", "q")),
+        value = 1:5
+    )
+    expect_error(sch_validate(schema, df), "combinations|crossing|incomplete")
+})
+
+# .relationships validation: complex election-style ----------------------
+
+test_that("relationships: complex nested/crossed formula validates", {
+    schema <- sch_schema(
+        .relationships = ~ (state + contest) / (party * time),
+        state = sch_character(),
+        contest = sch_character(),
+        party = sch_character(),
+        time = sch_integer(),
+        value = sch_numeric()
+    )
+    # 2 races: (CA, Gov), (TX, Sen); party: {D, R}; time: {1, 2}
+    df <- expand.grid(
+        state = c("CA", "TX"),
+        contest = c("Gov", "Sen"),
+        party = c("D", "R"),
+        time = 1:2,
+        stringsAsFactors = FALSE
+    )
+    # Filter to actual race combos
+    df <- df[
+        (df$state == "CA" & df$contest == "Gov") |
+            (df$state == "TX" & df$contest == "Sen"),
+    ]
+    df$value <- seq_len(nrow(df))
+    expect_no_error(sch_validate(schema, df))
+})
+
+# .relationships validation: edge cases ----------------------------------
+
+test_that("relationships: empty data frame with formula passes", {
+    schema <- sch_schema(
+        .relationships = ~ a * b,
+        a = sch_integer(),
+        b = sch_character(),
+        value = sch_numeric()
+    )
+    df <- data.frame(a = integer(0), b = character(0), value = numeric(0))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("relationships: single-row data passes all checks", {
+    schema <- sch_schema(
+        .relationships = ~ a * b,
+        a = sch_integer(),
+        b = sch_character(),
+        value = sch_numeric()
+    )
+    df <- data.frame(a = 1L, b = "x", value = 1.0)
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("relationships: skipped when formula column missing from data", {
+    schema <- sch_schema(
+        .relationships = ~ a * b,
+        a = sch_integer(),
+        b = sch_character(),
+        value = sch_numeric()
+    )
+    df <- data.frame(a = 1L, value = 1.0)
+    # Names check catches it; relationships should not crash
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "missing")
+})
+
+test_that("relationships: check='relationships' can be run independently", {
+    schema <- sch_schema(
+        .relationships = ~ a * b,
+        a = sch_integer(),
+        b = sch_character(),
+        value = sch_numeric()
+    )
+    df <- data.frame(
+        a = c(1L, 1L, 2L, 2L),
+        b = c("x", "y", "x", "y"),
+        value = c(1.0, 2.0, 3.0, 4.0)
+    )
+    expect_no_error(sch_validate(schema, df, check = "relationships"))
+})
+
+test_that("relationships: no formula means check='relationships' is a no-op", {
+    schema <- sch_schema(
+        a = sch_integer(),
+        b = sch_character()
+    )
+    df <- data.frame(a = 1L, b = "x")
+    expect_no_error(sch_validate(schema, df, check = "relationships"))
+})
+
+test_that("relationships: NAs in formula columns are treated as distinct values", {
+    # NA is treated as a distinct value by vctrs::vec_unique, so a column
+    # with NA can cause incomplete-crossing errors even if non-NA values are complete.
+    schema <- sch_schema(
+        .relationships = ~ a * b,
+        a = sch_integer(),
+        b = sch_character()
+    )
+    # Complete crossing for non-NA combos, but NA in a inflates unique count
+    df <- data.frame(
+        a = c(1L, 1L, 2L, 2L, NA_integer_),
+        b = c("x", "y", "x", "y", "x")
+    )
+    # NA in `a` means 3 unique values of a (1, 2, NA) but only 5 rows,
+    # not the 3*2=6 expected for a full crossing — raises an error.
+    expect_error(sch_validate(schema, df), "incomplete|combinations|crossing")
 })

@@ -338,7 +338,7 @@ test_that("format.sch_schema() appends optional/no-NA notes", {
     )
     fmt <- format(x)
     expect_match(fmt["a"], "No NAs allowed")
-    expect_match(fmt["b"], "Optional")
+    expect_match(fmt["b"], "optional")
 })
 
 test_that("print.sch_schema() runs without error", {
@@ -351,25 +351,22 @@ test_that("print.sch_type() runs without error", {
     expect_output(print(sch_others()))
 })
 
-# sch_nest() -------------------------------------------------------------
+# sch_nest() (named only — for list-column nested data frames) -----------
 
 test_that("sch_nest() returns sch_schema class with type schema_nest", {
     x <- sch_nest(
         param = sch_character(),
-        value = sch_numeric(),
-        .keys = "param"
+        value = sch_numeric()
     )
     expect_s3_class(x, "sch_schema")
     expect_s3_class(x, "sch_type")
     expect_equal(x$type, "schema_nest")
-    expect_equal(x$keys, "param")
 })
 
 test_that("sch_nest() stores columns correctly", {
     x <- sch_nest(
         a = sch_integer(),
-        b = sch_numeric(),
-        .keys = "a"
+        b = sch_numeric()
     )
     expect_named(x$cols, c("a", "b"))
     expect_s3_class(x$cols$a, "sch_type")
@@ -377,62 +374,34 @@ test_that("sch_nest() stores columns correctly", {
 })
 
 test_that("sch_nest() accepts .desc", {
-    x <- sch_nest(a = sch_integer(), .keys = "a", .desc = "My group")
+    x <- sch_nest(a = sch_integer(), .desc = "My group")
     expect_equal(attr(x, "desc"), "My group")
-})
-
-test_that("sch_nest() accepts multiple keys", {
-    x <- sch_nest(
-        a = sch_integer(),
-        b = sch_character(),
-        c = sch_numeric(),
-        .keys = c("a", "b")
-    )
-    expect_equal(x$keys, c("a", "b"))
-})
-
-test_that("sch_nest() errors when .keys is not character", {
-    expect_error(
-        sch_nest(a = sch_integer(), .keys = 1),
-        "character"
-    )
-})
-
-test_that("sch_nest() errors when .keys references non-existent columns", {
-    expect_error(
-        sch_nest(a = sch_integer(), .keys = "b"),
-        "column"
-    )
-})
-
-test_that("sch_nest() allows empty .keys", {
-    expect_no_error(sch_nest(a = sch_integer(), .keys = character(0)))
 })
 
 test_that("sch_nest() errors on non-sch_type columns", {
     expect_error(
-        sch_nest(a = 1, .keys = "a"),
+        sch_nest(a = 1),
         "column type constructor"
     )
 })
 
 test_that("sch_nest() errors on unnamed columns", {
     expect_error(
-        sch_nest(sch_integer(), .keys = character(0)),
+        sch_nest(sch_integer()),
         "named"
     )
 })
 
 test_that("sch_nest() errors when sch_others() is included", {
     expect_error(
-        sch_nest(a = sch_integer(), sch_others(), .keys = "a"),
+        sch_nest(a = sch_integer(), sch_others()),
         "sch_others"
     )
 })
 
 test_that("sch_nest() errors on duplicate column names", {
     expect_error(
-        sch_nest(a = sch_integer(), a = sch_numeric(), .keys = "a")
+        sch_nest(a = sch_integer(), a = sch_numeric())
     )
 })
 
@@ -443,81 +412,27 @@ test_that("named sch_nest() works in sch_schema()", {
         id = sch_integer(),
         draws = sch_nest(
             param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
+            value = sch_numeric()
         )
     )
     expect_s3_class(x, "sch_schema")
     expect_equal(x$cols$draws$type, "schema_nest")
 })
 
-test_that("unnamed sch_nest() works in sch_schema() (flat)", {
-    x <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param"
-        )
+test_that("unnamed sch_nest() is not allowed in sch_schema()", {
+    expect_error(
+        sch_schema(
+            id = sch_integer(),
+            sch_nest(
+                param = sch_character(),
+                value = sch_numeric()
+            )
+        ),
+        "named"
     )
-    # unnamed nest should be allowed
-    expect_s3_class(x, "sch_schema")
-    expect_length(x$cols, 2)
-    expect_equal(x$cols[[2]]$type, "schema_nest")
-})
-
-test_that("unnamed sch_nest() and sch_others() coexist in sch_schema()", {
-    x <- sch_schema(
-        id = sch_integer(),
-        sch_nest(a = sch_numeric(), .keys = "a"),
-        sch_others()
-    )
-    expect_length(x$cols, 3)
 })
 
 # Print/format with sch_nest() ------------------------------------------
-
-test_that("format.sch_schema() attaches 'levels' attribute", {
-    x <- sch_schema(
-        age = sch_integer(),
-        sch_nest(
-            subject = sch_character(),
-            score = sch_numeric(),
-            .keys = "subject",
-            .desc = "exam scores"
-        )
-    )
-    fmt_l <- format_schema_cols(x$cols, ansi = FALSE, depth = 0L)
-    fmt <- fmt_l$out
-    nms <- fmt_l$nms
-    lvls <- fmt_l$levels
-    expect_type(lvls, "integer")
-    expect_length(lvls, length(fmt))
-    # age is at level 0, header at level 0, subject/score at level 1
-    expect_equal(lvls[nms == "age"], 0L)
-    expect_equal(lvls[grep("flat", fmt)], 0L)
-    expect_equal(lvls[nms == "subject"], 1L)
-    expect_equal(lvls[nms == "score"], 1L)
-})
-
-
-test_that("format.sch_schema() with unnamed sch_nest() shows (flat) header", {
-    x <- sch_schema(
-        age = sch_integer(),
-        sch_nest(
-            subject = sch_character(),
-            score = sch_numeric(),
-            .keys = "subject",
-            .desc = "exam scores"
-        )
-    )
-    fmt <- format(x)
-    # Should contain the flat header
-    header_line <- fmt[grep("flat", fmt)]
-    expect_length(header_line, 1)
-    expect_match(header_line, "exam scores")
-    expect_match(header_line, "\\(flat\\)")
-})
 
 test_that("format.sch_schema() with named sch_nest() shows (nested) header", {
     x <- sch_schema(
@@ -525,7 +440,6 @@ test_that("format.sch_schema() with named sch_nest() shows (nested) header", {
         scores = sch_nest(
             subject = sch_character(),
             score = sch_numeric(),
-            .keys = "subject",
             .desc = "exam scores"
         )
     )
@@ -538,112 +452,16 @@ test_that("format.sch_schema() with named sch_nest() shows (nested) header", {
     expect_true("scores" %in% names(fmt))
 })
 
-test_that("print.sch_schema() with sch_nest() runs without error", {
-    x <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            param = sch_character(),
-            value = sch_numeric(),
-            .keys = "param",
-            .desc = "parameters"
-        )
-    )
-    expect_output(print(x), "schema")
-})
-
 test_that("print.sch_schema() with named sch_nest() runs without error", {
     x <- sch_schema(
         id = sch_integer(),
         draws = sch_nest(
             param = sch_character(),
             value = sch_numeric(),
-            .keys = "param",
             .desc = "MCMC draws"
         )
     )
     expect_output(print(x), "schema")
-})
-
-# Nested nesting -------------------------------------------------------
-
-test_that("sch_nest() allows unnamed nested sch_nest()", {
-    x <- sch_nest(
-        group = sch_character(),
-        sch_nest(
-            item = sch_numeric(),
-            .keys = "item",
-            .desc = "items"
-        ),
-        .keys = "group",
-        .desc = "groups"
-    )
-    expect_s3_class(x, "sch_schema")
-    expect_equal(x$type, "schema_nest")
-    expect_length(x$cols, 2)
-    expect_equal(x$cols[[2]]$type, "schema_nest")
-})
-
-test_that("sch_schema() with nested sch_nest() works", {
-    x <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            group = sch_character(),
-            sch_nest(
-                item = sch_numeric(),
-                value = sch_numeric(),
-                .keys = "item",
-                .desc = "items"
-            ),
-            .keys = "group",
-            .desc = "groups"
-        )
-    )
-    expect_s3_class(x, "sch_schema")
-    expect_length(x$cols, 2)
-})
-
-test_that("sch_nest() .keys can only reference direct columns (not nested)", {
-    expect_error(
-        sch_nest(
-            group = sch_character(),
-            sch_nest(
-                item = sch_numeric(),
-                .keys = "item",
-                .desc = "items"
-            ),
-            .keys = c("group", "item"),
-            .desc = "invalid"
-        ),
-        "not found"
-    )
-})
-
-test_that("print.sch_schema() with multiple levels of nesting works", {
-    x <- sch_schema(
-        id = sch_integer(),
-        sch_nest(
-            group = sch_character(),
-            sch_nest(
-                item = sch_numeric(),
-                value = sch_numeric(),
-                .keys = "item",
-                .desc = "items"
-            ),
-            .keys = "group",
-            .desc = "groups"
-        )
-    )
-    expect_output(print(x), "schema")
-    # Check that indentation increases
-    output <- capture.output(print(x))
-    # Find the item line and ensure it's more indented than group
-    item_line <- grep("item", output)
-    group_line <- grep("group", output)
-    if (length(item_line) > 0 && length(group_line) > 0) {
-        item_indent <- nchar(output[item_line[1]]) - nchar(trimws(output[item_line[1]]))
-        group_indent <- nchar(output[group_line[1]]) - nchar(trimws(output[group_line[1]]))
-        expect_true(item_indent > group_indent)
-    }
 })
 
 # Distinct argument tests -----------------------------------------------
@@ -695,8 +513,8 @@ test_that("[Distinct] flag appears in schema print output for distinct columns",
     output <- capture.output(print(x))
     output_text <- paste(output, collapse = "\n")
 
-    # Check that [Distinct] flag appears in output
-    expect_match(output_text, "\\[Distinct\\]")
+    # Check that (distinct) flag appears in output
+    expect_match(output_text, "\\(distinct\\)")
 })
 
 test_that("[Distinct] flag does not appear for non-distinct columns", {
@@ -707,8 +525,8 @@ test_that("[Distinct] flag does not appear for non-distinct columns", {
     output <- capture.output(print(x))
     output_text <- paste(output, collapse = "\n")
 
-    # [Distinct] flag should not appear
-    expect_false(grepl("\\[Distinct\\]", output_text))
+    # (distinct) flag should not appear
+    expect_false(grepl("\\(distinct\\)", output_text))
 })
 
 test_that("[Distinct] and [Optional] flags work together", {
@@ -719,9 +537,9 @@ test_that("[Distinct] and [Optional] flags work together", {
     output <- capture.output(print(x))
     output_text <- paste(output, collapse = "\n")
 
-    # Both flags should appear
-    expect_match(output_text, "\\[Distinct\\]")
-    expect_match(output_text, "\\[Optional\\]")
+    # Both flags should appear (may be combined as "(optional; distinct)")
+    expect_match(output_text, "distinct")
+    expect_match(output_text, "optional")
 })
 
 test_that("Nested schema columns show [Distinct] flag", {
@@ -735,7 +553,7 @@ test_that("Nested schema columns show [Distinct] flag", {
     output <- capture.output(print(x))
     output_text <- paste(output, collapse = "\n")
 
-    expect_match(output_text, "\\[Distinct\\]")
+    expect_match(output_text, "\\(distinct\\)")
 })
 
 # Regression tests: strict factor level validation ----
@@ -816,4 +634,392 @@ test_that("list_of with all valid elements passes", {
     schema <- sch_schema(x = sch_list_of(class = "data.frame"))
     df <- data.frame(x = I(list(data.frame(a = 1), data.frame(a = 2))))
     expect_no_error(sch_validate(schema, df))
+})
+
+# sch_multiple() ---------------------------------------------------------
+
+test_that("sch_multiple() returns sch_type with type schema_multiple", {
+    x <- sch_multiple(name = "trt", type = sch_numeric())
+    expect_s3_class(x, "sch_type")
+    expect_equal(x$type, "schema_multiple")
+})
+
+test_that("sch_multiple() stores name, inner type, and required", {
+    inner <- sch_numeric("A share", bounds = c(0, 1))
+    x <- sch_multiple(name = "demo", type = inner, desc = "Demographics")
+    expect_equal(x$name, "demo")
+    expect_identical(x$inner, inner)
+    expect_true(attr(x, "required"))
+    expect_equal(attr(x, "desc"), "Demographics")
+})
+
+test_that("sch_multiple() required=FALSE is stored correctly", {
+    x <- sch_multiple(name = "grp", type = sch_integer(), required = FALSE)
+    expect_false(attr(x, "required"))
+})
+
+test_that("sch_multiple() without cross-column fns stores NULLs", {
+    x <- sch_multiple(name = "grp", type = sch_integer())
+    expect_null(x$cross_check)
+    expect_null(x$cross_msg)
+    expect_null(x$cross_coerce)
+})
+
+test_that("sch_multiple() stores cross-column functions", {
+    chk <- function(x, type) TRUE
+    msg <- function(type) "ok"
+    crc <- function(x, type) x
+    x <- sch_multiple(name = "grp", type = sch_numeric(), check = chk, msg = msg, coerce = crc)
+    expect_identical(x$cross_check, chk)
+    expect_identical(x$cross_msg, msg)
+    expect_identical(x$cross_coerce, crc)
+})
+
+test_that("sch_multiple() errors when name is missing", {
+    expect_error(sch_multiple(type = sch_numeric()), "name")
+})
+
+test_that("sch_multiple() errors when name is not a single string", {
+    expect_error(sch_multiple(name = c("a", "b"), type = sch_numeric()), "name")
+    expect_error(sch_multiple(name = 1L, type = sch_numeric()), "name")
+})
+
+test_that("sch_multiple() errors when type is not sch_type", {
+    expect_error(sch_multiple(name = "grp", type = list()), "sch_type")
+    expect_error(sch_multiple(name = "grp", type = "numeric"), "sch_type")
+})
+
+test_that("sch_multiple() errors when type is sch_others()", {
+    expect_error(sch_multiple(name = "grp", type = sch_others()), "sch_type")
+})
+
+test_that("sch_multiple() errors when type is a schema_nest", {
+    expect_error(
+        sch_multiple(name = "grp", type = sch_nest(a = sch_numeric())),
+        "sch_type"
+    )
+})
+
+test_that("sch_multiple() errors when only some of check/msg/coerce are provided", {
+    expect_error(
+        sch_multiple(
+            name = "grp",
+            type = sch_numeric(),
+            check = function(x, type) TRUE
+        ),
+        "check.*msg.*coerce|all.*provided"
+    )
+    expect_error(
+        sch_multiple(
+            name = "grp",
+            type = sch_numeric(),
+            msg = function(type) "x"
+        ),
+        "check.*msg.*coerce|all.*provided"
+    )
+})
+
+test_that("sch_multiple() errors on wrong check arity (must have 2 args)", {
+    expect_error(
+        sch_multiple(
+            name = "grp",
+            type = sch_numeric(),
+            check = function(x) TRUE,
+            msg = function(type) "x",
+            coerce = function(x, type) x
+        ),
+        "check"
+    )
+})
+
+test_that("sch_multiple() errors on wrong msg arity (must have 1 arg)", {
+    expect_error(
+        sch_multiple(
+            name = "grp",
+            type = sch_numeric(),
+            check = function(x, type) TRUE,
+            msg = function(type, extra) "x",
+            coerce = function(x, type) x
+        ),
+        "msg"
+    )
+})
+
+test_that("sch_multiple() errors on wrong coerce arity (must have 2 args)", {
+    expect_error(
+        sch_multiple(
+            name = "grp",
+            type = sch_numeric(),
+            check = function(x, type) TRUE,
+            msg = function(type) "x",
+            coerce = function(x) x
+        ),
+        "coerce"
+    )
+})
+
+# sch_multiple() inside sch_schema() ------------------------------------
+
+test_that("sch_schema() allows unnamed sch_multiple()", {
+    x <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    expect_s3_class(x, "sch_schema")
+    expect_length(x$cols, 2)
+    expect_equal(x$cols[[2]]$type, "schema_multiple")
+})
+
+test_that("sch_schema() errors on named sch_multiple()", {
+    expect_error(
+        sch_schema(
+            id = sch_integer(),
+            grp = sch_multiple(name = "trt", type = sch_numeric())
+        ),
+        "must not be named"
+    )
+})
+
+test_that("sch_schema() allows sch_multiple() alongside sch_others()", {
+    x <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric()),
+        sch_others()
+    )
+    expect_length(x$cols, 3)
+})
+
+# format/print for sch_multiple() ---------------------------------------
+
+test_that("format.sch_type() handles schema_multiple", {
+    x <- sch_multiple(name = "trt", type = sch_numeric(bounds = c(0, 1)))
+    fmt <- format(x)
+    expect_type(fmt, "character")
+    expect_match(fmt, "trt")
+})
+
+test_that("format.sch_schema() includes multiple group entry", {
+    x <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric(), desc = "Treatments")
+    )
+    fmt <- format(x)
+    # Should have an entry for the multiple group
+    expect_true(any(grepl("trt|multiple|Treatments", fmt, ignore.case = TRUE)))
+})
+
+test_that("print.sch_schema() runs without error when sch_multiple() present", {
+    x <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "trt", type = sch_numeric())
+    )
+    expect_output(print(x))
+})
+
+# .relationships formula: parsing ----------------------------------------
+
+test_that("parse_relationship() parses ~ a into Var", {
+    tree <- parse_relationship(~a)
+    expect_equal(tree$type, "var")
+    expect_equal(tree$name, "a")
+})
+
+test_that("parse_relationship() parses ~ a * b into Cross", {
+    tree <- parse_relationship(~ a * b)
+    expect_equal(tree$type, "cross")
+    expect_length(tree$children, 2)
+    expect_equal(tree$children[[1]]$name, "a")
+    expect_equal(tree$children[[2]]$name, "b")
+})
+
+test_that("parse_relationship() flattens ~ a * b * c into a single Cross", {
+    tree <- parse_relationship(~ a * b * c)
+    expect_equal(tree$type, "cross")
+    expect_length(tree$children, 3)
+    expect_equal(tree$children[[1]]$name, "a")
+    expect_equal(tree$children[[2]]$name, "b")
+    expect_equal(tree$children[[3]]$name, "c")
+})
+
+test_that("parse_relationship() parses ~ a / b into Nest", {
+    tree <- parse_relationship(~ a / b)
+    expect_equal(tree$type, "nest")
+    expect_equal(tree$outer$name, "a")
+    expect_equal(tree$inner$name, "b")
+})
+
+test_that("parse_relationship() parses ~ a / b / c as left-associative nesting", {
+    tree <- parse_relationship(~ a / b / c)
+    expect_equal(tree$type, "nest")
+    expect_equal(tree$outer$type, "nest")
+    expect_equal(tree$outer$outer$name, "a")
+    expect_equal(tree$outer$inner$name, "b")
+    expect_equal(tree$inner$name, "c")
+})
+
+test_that("parse_relationship() parses ~ a + b into Compound", {
+    tree <- parse_relationship(~ a + b)
+    expect_equal(tree$type, "compound")
+    expect_length(tree$children, 2)
+})
+
+test_that("parse_relationship() flattens ~ a + b + c into a single Compound", {
+    tree <- parse_relationship(~ a + b + c)
+    expect_equal(tree$type, "compound")
+    expect_length(tree$children, 3)
+})
+
+test_that("parse_relationship() parses ~ (a + b) * c correctly", {
+    tree <- parse_relationship(~ (a + b) * c)
+    expect_equal(tree$type, "cross")
+    expect_equal(tree$children[[1]]$type, "compound")
+    expect_equal(tree$children[[2]]$name, "c")
+})
+
+test_that("parse_relationship() parses ~ a * (b / c) correctly", {
+    tree <- parse_relationship(~ a * (b / c))
+    expect_equal(tree$type, "cross")
+    expect_equal(tree$children[[1]]$name, "a")
+    expect_equal(tree$children[[2]]$type, "nest")
+    expect_equal(tree$children[[2]]$outer$name, "b")
+    expect_equal(tree$children[[2]]$inner$name, "c")
+})
+
+test_that("parse_relationship() parses ~ (a * b) / c correctly", {
+    tree <- parse_relationship(~ (a * b) / c)
+    expect_equal(tree$type, "nest")
+    expect_equal(tree$outer$type, "cross")
+    expect_equal(tree$inner$name, "c")
+})
+
+test_that("parse_relationship() treats : as * (synonym)", {
+    tree <- parse_relationship(~ a:b)
+    expect_equal(tree$type, "cross")
+    expect_length(tree$children, 2)
+})
+
+test_that("parse_relationship() precedence: * and / are left-associative", {
+    # ~ a * b / c  parses as  ~ (a * b) / c  in R
+    tree <- parse_relationship(~ a * b / c)
+    expect_equal(tree$type, "nest")
+    expect_equal(tree$outer$type, "cross")
+    expect_equal(tree$inner$name, "c")
+})
+
+test_that("parse_relationship() precedence: * binds tighter than +", {
+    # ~ a + b * c  should parse as  ~ a + (b * c)
+    tree <- parse_relationship(~ a + b * c)
+    expect_equal(tree$type, "compound")
+    expect_equal(tree$children[[1]]$name, "a")
+    expect_equal(tree$children[[2]]$type, "cross")
+})
+
+test_that("parse_relationship() complex election-style formula", {
+    tree <- parse_relationship(
+        ~ (state + election + contest) / ((party / candidate) * time * (geo / method))
+    )
+    expect_equal(tree$type, "nest")
+    expect_equal(tree$outer$type, "compound")
+    expect_length(tree$outer$children, 3) # state, election, contest
+    expect_equal(tree$inner$type, "cross")
+    expect_length(tree$inner$children, 3) # (party/cand), time, (geo/method)
+})
+
+test_that("parse_relationship() errors on non-formula input", {
+    expect_error(parse_relationship("not a formula"), "formula")
+})
+
+test_that("parse_relationship() errors on two-sided formula", {
+    expect_error(parse_relationship(y ~ x), "one-sided")
+})
+
+# .relationships in sch_schema() -----------------------------------------
+
+test_that("sch_schema() accepts .relationships formula", {
+    x <- sch_schema(
+        .relationships = ~ a * b,
+        a = sch_integer(),
+        b = sch_character(),
+        value = sch_numeric()
+    )
+    expect_s3_class(x, "sch_schema")
+    expect_false(is.null(x$relationships))
+    expect_equal(x$relationships$type, "cross")
+})
+
+test_that("sch_schema() with .relationships = NULL stores no relationships", {
+    x <- sch_schema(a = sch_integer())
+    expect_null(x$relationships)
+})
+
+test_that("sch_schema() errors when .relationships references non-existent column", {
+    expect_error(
+        sch_schema(
+            .relationships = ~ a * b,
+            a = sch_integer()
+        ),
+        "b"
+    )
+})
+
+test_that("sch_schema() errors when .relationships references distinct=TRUE column", {
+    expect_error(
+        sch_schema(
+            .relationships = ~ a * b,
+            a = sch_integer(distinct = TRUE),
+            b = sch_character()
+        ),
+        "distinct"
+    )
+})
+
+test_that("sch_schema() errors when .relationships is not a formula", {
+    expect_error(
+        sch_schema(
+            .relationships = "not a formula",
+            a = sch_integer()
+        ),
+        "formula"
+    )
+})
+
+test_that("sch_schema() warns when .relationships root is + (compound at top level)", {
+    expect_warning(
+        sch_schema(
+            .relationships = ~ a + b,
+            a = sch_integer(),
+            b = sch_character()
+        ),
+        "Top-level"
+    )
+})
+
+# format/print with .relationships ---------------------------------------
+
+test_that("print.sch_schema() shows relationships when present", {
+    x <- sch_schema(
+        .relationships = ~ a * b,
+        a = sch_integer(),
+        b = sch_character(),
+        value = sch_numeric()
+    )
+    output <- capture.output(print(x))
+    output_text <- paste(output, collapse = "\n")
+    expect_match(output_text, "Relationships|relationships")
+})
+
+test_that("format.sch_schema() includes formula columns in flat list", {
+    x <- sch_schema(
+        .relationships = ~ chain * draw * param,
+        chain = sch_integer(),
+        draw = sch_integer(),
+        param = sch_factor(levels = c("mu", "sigma")),
+        value = sch_numeric()
+    )
+    fmt <- format(x)
+    # All columns should be present in the flat list
+    expect_true("chain" %in% names(fmt))
+    expect_true("draw" %in% names(fmt))
+    expect_true("param" %in% names(fmt))
+    expect_true("value" %in% names(fmt))
 })

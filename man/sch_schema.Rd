@@ -3,6 +3,7 @@
 \name{sch_schema}
 \alias{sch_schema}
 \alias{sch_others}
+\alias{sch_multiple}
 \alias{sch_nest}
 \alias{sch_numeric}
 \alias{sch_integer}
@@ -16,11 +17,21 @@
 \alias{sch_custom}
 \title{Define a structured data type}
 \usage{
-sch_schema(..., .desc = NULL)
+sch_schema(..., .desc = NULL, .relationships = NULL)
 
 sch_others()
 
-sch_nest(..., .keys = character(0), .desc = NULL)
+sch_multiple(
+  name,
+  type,
+  desc = NULL,
+  required = TRUE,
+  check = NULL,
+  msg = NULL,
+  coerce = NULL
+)
+
+sch_nest(..., .desc = NULL)
 
 sch_numeric(
   desc = NULL,
@@ -106,18 +117,25 @@ as \code{sch_numeric()}. Every type must be a kind of vector, i.e.,
 \code{\link[vctrs:vector-checks]{vctrs::obj_is_vector()}} must return \code{TRUE}.
 
 All columns must be named, except for \code{sch_others()}, as described below,
-and unnamed \code{sch_nest()}, which describes a set of columns which are
-logically nested within the outer columns but are stored flat in the actual
-data frame. A named \code{sch_nest()} describes columns stored as a nested
-data frame.
+and \code{sch_multiple()}, which describes a group of columns sharing the same
+type. A named \code{sch_nest()} describes columns stored as a nested data frame.
 
 The special function \code{sch_others()} indicates the preferred location of
 other columns not explicitly mentioned in the schema. If no \code{sch_others()}
 appears, then other columns are not allowed.
 Trailing commas are permitted.}
 
-\item{.keys}{A character vector selecting one or more column names from \code{...}
-that serve as the key columns for the nested group.}
+\item{.relationships}{An optional one-sided formula describing the structural
+relationships between values in different columns. Formulas can only involve
+named arguments to \code{...}. Use \code{*} to signify crossed levels, which will
+verify all combinations exist, \code{/} to signify nested levels, and \code{+} to create
+compound keys (bundling columns into a single identifier).
+See the examples below.}
+
+\item{name}{A name for the custom type.}
+
+\item{type}{A column type constructor (e.g. \code{\link[=sch_numeric]{sch_numeric()}}) specifying the
+expected type of every column in the group.}
 
 \item{desc, .desc}{A description of the column for consumers of the schema.
 The type contraints will be described separately and do not need to be
@@ -125,28 +143,9 @@ included in the description.  For example for "age", the description might
 be "Age of the patient in years", not "Non-negative integer representing
 the age of the patient in years".}
 
-\item{bounds}{Length-two vector \code{c(min, max)} specifying the allowed range of values.}
-
-\item{closed}{Length-two logical vector specifying whether the bounds are
-closed (inclusive) or open (exclusive).}
-
-\item{missing}{If \code{TRUE}, the column may be contain missing values. Otherwise,
-any missing values result in an error.}
-
-\item{required}{If \code{TRUE}, the column must be present. If \code{FALSE}, the column
-is optional.}
-
-\item{distinct}{If \code{TRUE}, the column must contain no duplicate values (after
-accounting for nesting structure).}
-
-\item{levels}{A character vector of factor levels.}
-
-\item{strict}{If \code{TRUE}, only factors with the specified levels are accepted.
-If \code{FALSE}, character vectors with the specified levels are also accepted.}
-
-\item{class}{A character vector of class names.}
-
-\item{name}{A name for the custom type.}
+\item{required}{If \code{TRUE} (default), the group entry in \code{sch_groups} must
+contain at least one column name. If \code{FALSE}, an empty character vector
+for that entry is also accepted.}
 
 \item{check}{A two-argument function that checks whether an object satisfies
 the type. The first argument is the object to check, and the second is the
@@ -158,6 +157,24 @@ about the type when passed the type object itself. Should not end with a period.
 \item{coerce}{A two-argument function that attempts to coerce an object to the
 type. The first argument is the object to coerce, and the second is the full
 type specification.}
+
+\item{bounds}{Length-two vector \code{c(min, max)} specifying the allowed range of values.}
+
+\item{closed}{Length-two logical vector specifying whether the bounds are
+closed (inclusive) or open (exclusive).}
+
+\item{missing}{If \code{TRUE}, the column may be contain missing values. Otherwise,
+any missing values result in an error.}
+
+\item{distinct}{If \code{TRUE}, the column must contain no duplicate values (after
+accounting for nesting structure).}
+
+\item{levels}{A character vector of factor levels.}
+
+\item{strict}{If \code{TRUE}, only factors with the specified levels are accepted.
+If \code{FALSE}, character vectors with the specified levels are also accepted.}
+
+\item{class}{A character vector of class names.}
 }
 \value{
 An object of class \code{sch_schema},
@@ -171,11 +188,21 @@ Schemas support nesting relationships.
 \itemize{
 \item \code{sch_others()}: A placeholder for other non-required columns in a schema.
 
-\item \code{sch_nest()}: A set of columns that are logically nested within the
-outer schema. If given a name in the outer \code{sch_schema()}, the columns are
-stored as a nested data frame. If unnamed, the columns are stored flat
-(adjacent to the outer columns). The unique combinations of rows defined
-by \code{.keys} must repeat identically across groups defined by the outer columns.
+\item \code{sch_multiple()}: A group of multiple columns sharing the same type. The
+group is identified by \code{name}, which must appear as an entry in the
+\code{sch_groups} attribute of the data frame being validated. That entry is a
+character vector of column names that belong to this group.
+
+Optionally accepts cross-column \code{check}, \code{msg}, and \code{coerce} functions that
+are applied to the entire group after per-column type checks pass. These
+must all be provided together or not at all.
+
+\code{sch_multiple()} must be unnamed in an \code{sch_schema()} call. Per-column
+constraints such as \code{missing} and \code{distinct} are set on the inner \code{type}
+argument.
+
+\item \code{sch_nest()}: A set of columns stored as a nested list-column of
+data frames. Must be given a name in the outer \code{sch_schema()}.
 
 \item \code{sch_numeric()}: A numeric vector that is optionally constrained to be
 within a certain range.
@@ -222,17 +249,11 @@ sch_schema(
 
 sch_schema(
     .desc = "MCMC draws",
-    draw = sch_integer(
-        "Draw number",
-        bounds = c(1, Inf),
-        closed = c(TRUE, FALSE),
-        distinct = TRUE
-    ),
-    sch_nest(
-        param = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
-        value = sch_numeric("Parameter value"),
-        .keys = "param"
-    )
+    .relationships = ~ chain * draw * parameter,
+    chain = sch_integer("Chain number"),
+    draw = sch_integer("Draw number", bounds = c(1, Inf), closed = c(TRUE, FALSE)),
+    parameter = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
+    value = sch_numeric("Parameter value")
 )
 
 sch_custom(
