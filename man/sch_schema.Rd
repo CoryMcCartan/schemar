@@ -57,7 +57,7 @@ sch_character(desc = NULL, missing = TRUE, required = TRUE, distinct = FALSE)
 
 sch_factor(
   desc = NULL,
-  levels,
+  levels = NULL,
   strict = TRUE,
   missing = TRUE,
   required = TRUE,
@@ -169,7 +169,7 @@ any missing values result in an error.}
 \item{distinct}{If \code{TRUE}, the column must contain no duplicate values (after
 accounting for nesting structure).}
 
-\item{levels}{A character vector of factor levels.}
+\item{levels}{A character vector of factor levels, or NULL not enforce specific levels.}
 
 \item{strict}{If \code{TRUE}, only factors with the specified levels are accepted.
 If \code{FALSE}, character vectors with the specified levels are also accepted.}

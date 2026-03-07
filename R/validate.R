@@ -275,9 +275,6 @@ validate_distinct <- function(cols, data, col_info, path = character(0)) {
             next
         }
         col_nm <- col_info$nms[i]
-        if (!col_nm %in% names(data)) {
-            next
-        }
         issues <- c(issues, check_col_distinct(data[[col_nm]], c(path, col_nm)))
     }
 

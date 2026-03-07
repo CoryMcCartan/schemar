@@ -994,3 +994,73 @@ test_that("relationships: NAs in formula columns are treated as distinct values"
     # not the 3*2=6 expected for a full crossing — raises an error.
     expect_error(sch_validate(schema, df), "incomplete|combinations|crossing")
 })
+
+# sch_multiple with distinct=TRUE -------------------------------------------
+
+test_that("sch_multiple: inner distinct=TRUE detects duplicates in group column", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "vals", type = sch_numeric(distinct = TRUE))
+    )
+    # vals_a has duplicate 0.5
+    df <- data.frame(id = 1:2, vals_a = c(0.5, 0.5), vals_b = c(0.7, 0.8))
+    attr(df, "sch_groups") <- list(vals = c("vals_a", "vals_b"))
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "duplicate")
+})
+
+test_that("sch_multiple: inner distinct=TRUE passes with unique values in group columns", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "vals", type = sch_numeric(distinct = TRUE))
+    )
+    df <- data.frame(id = 1:3, vals_a = c(0.5, 0.7, 0.9), vals_b = c(0.3, 0.4, 0.6))
+    attr(df, "sch_groups") <- list(vals = c("vals_a", "vals_b"))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("sch_multiple: inner distinct=TRUE with NAs passes (NAs excluded from check)", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "vals", type = sch_numeric(distinct = TRUE, missing = TRUE))
+    )
+    df <- data.frame(id = 1:2, vals_a = c(0.5, NA), vals_b = c(0.7, NA))
+    attr(df, "sch_groups") <- list(vals = c("vals_a", "vals_b"))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("sch_multiple: inner distinct=TRUE skips check if sch_groups attribute missing", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "vals", type = sch_numeric(distinct = TRUE))
+    )
+    df <- data.frame(id = 1L, vals_a = 0.5, vals_b = 0.5)
+    # No sch_groups attribute — the distinct check within the group should be skipped
+    # (but other validations like missing sch_groups will catch the error)
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "sch_groups")
+})
+
+test_that("sch_multiple: inner distinct=TRUE skips check if group name not in sch_groups", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "vals", type = sch_numeric(distinct = TRUE))
+    )
+    df <- data.frame(id = 1L, vals_a = 0.5)
+    attr(df, "sch_groups") <- list(other_group = "vals_a")
+    # Group "vals" is not in sch_groups, so distinct check is skipped
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "vals")
+})
+
+test_that("sch_multiple: inner distinct=TRUE skips missing group columns", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        sch_multiple(name = "vals", type = sch_numeric(distinct = TRUE))
+    )
+    df <- data.frame(id = 1L, vals_a = 0.5)
+    attr(df, "sch_groups") <- list(vals = c("vals_a", "vals_b"))
+    # vals_b is in the group but missing from data — should skip and raise error for missing column
+    err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
+    expect_match(conditionMessage(err), "missing")
+})
