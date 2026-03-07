@@ -19,8 +19,11 @@ pak::pak("CoryMcCartan/schemar")
 
 ## All functions
 
+- [`parse_relationship()`](http://corymccartan.com/schemar/reference/parse_relationship.md)
+  : Parse a relationship formula into a tree
 - [`sch_schema()`](http://corymccartan.com/schemar/reference/sch_schema.md)
   [`sch_others()`](http://corymccartan.com/schemar/reference/sch_schema.md)
+  [`sch_multiple()`](http://corymccartan.com/schemar/reference/sch_schema.md)
   [`sch_nest()`](http://corymccartan.com/schemar/reference/sch_schema.md)
   [`sch_numeric()`](http://corymccartan.com/schemar/reference/sch_schema.md)
   [`sch_integer()`](http://corymccartan.com/schemar/reference/sch_schema.md)

@@ -7,11 +7,21 @@ optional. Schemas support nesting relationships.
 ## Usage
 
 ``` r
-sch_schema(..., .desc = NULL)
+sch_schema(..., .desc = NULL, .relationships = NULL)
 
 sch_others()
 
-sch_nest(..., .keys = character(0), .desc = NULL)
+sch_multiple(
+  name,
+  type,
+  desc = NULL,
+  required = TRUE,
+  check = NULL,
+  msg = NULL,
+  coerce = NULL
+)
+
+sch_nest(..., .desc = NULL)
 
 sch_numeric(
   desc = NULL,
@@ -102,20 +112,32 @@ sch_custom(
   must return `TRUE`.
 
   All columns must be named, except for `sch_others()`, as described
-  below, and unnamed `sch_nest()`, which describes a set of columns
-  which are logically nested within the outer columns but are stored
-  flat in the actual data frame. A named `sch_nest()` describes columns
-  stored as a nested data frame.
+  below, and `sch_multiple()`, which describes a group of columns
+  sharing the same type. A named `sch_nest()` describes columns stored
+  as a nested data frame.
 
   The special function `sch_others()` indicates the preferred location
   of other columns not explicitly mentioned in the schema. If no
   `sch_others()` appears, then other columns are not allowed. Trailing
   commas are permitted.
 
-- .keys:
+- .relationships:
 
-  A character vector selecting one or more column names from `...` that
-  serve as the key columns for the nested group.
+  An optional one-sided formula describing the structural relationships
+  between values in different columns. Formulas can only involve named
+  arguments to `...`. Use `*` to signify crossed levels, which will
+  verify all combinations exist, `/` to signify nested levels, and `+`
+  to create compound keys (bundling columns into a single identifier).
+  See the examples below.
+
+- name:
+
+  A name for the custom type.
+
+- type:
+
+  A column type constructor (e.g. `sch_numeric()`) specifying the
+  expected type of every column in the group.
 
 - desc, .desc:
 
@@ -124,6 +146,29 @@ sch_custom(
   in the description. For example for "age", the description might be
   "Age of the patient in years", not "Non-negative integer representing
   the age of the patient in years".
+
+- required:
+
+  If `TRUE` (default), the group entry in `sch_groups` must contain at
+  least one column name. If `FALSE`, an empty character vector for that
+  entry is also accepted.
+
+- check:
+
+  A two-argument function that checks whether an object satisfies the
+  type. The first argument is the object to check, and the second is the
+  full type specification.
+
+- msg:
+
+  A one-argument function that generates a descriptive message about the
+  type when passed the type object itself. Should not end with a period.
+
+- coerce:
+
+  A two-argument function that attempts to coerce an object to the type.
+  The first argument is the object to coerce, and the second is the full
+  type specification.
 
 - bounds:
 
@@ -139,11 +184,6 @@ sch_custom(
 
   If `TRUE`, the column may be contain missing values. Otherwise, any
   missing values result in an error.
-
-- required:
-
-  If `TRUE`, the column must be present. If `FALSE`, the column is
-  optional.
 
 - distinct:
 
@@ -164,27 +204,6 @@ sch_custom(
 
   A character vector of class names.
 
-- name:
-
-  A name for the custom type.
-
-- check:
-
-  A two-argument function that checks whether an object satisfies the
-  type. The first argument is the object to check, and the second is the
-  full type specification.
-
-- msg:
-
-  A one-argument function that generates a descriptive message about the
-  type when passed the type object itself. Should not end with a period.
-
-- coerce:
-
-  A two-argument function that attempts to coerce an object to the type.
-  The first argument is the object to coerce, and the second is the full
-  type specification.
-
 ## Value
 
 An object of class `sch_schema`,
@@ -194,12 +213,21 @@ An object of class `sch_schema`,
 - `sch_others()`: A placeholder for other non-required columns in a
   schema.
 
-- `sch_nest()`: A set of columns that are logically nested within the
-  outer schema. If given a name in the outer `sch_schema()`, the columns
-  are stored as a nested data frame. If unnamed, the columns are stored
-  flat (adjacent to the outer columns). The unique combinations of rows
-  defined by `.keys` must repeat identically across groups defined by
-  the outer columns.
+- `sch_multiple()`: A group of multiple columns sharing the same type.
+  The group is identified by `name`, which must appear as an entry in
+  the `sch_groups` attribute of the data frame being validated. That
+  entry is a character vector of column names that belong to this group.
+
+  Optionally accepts cross-column `check`, `msg`, and `coerce` functions
+  that are applied to the entire group after per-column type checks
+  pass. These must all be provided together or not at all.
+
+  `sch_multiple()` must be unnamed in an `sch_schema()` call. Per-column
+  constraints such as `missing` and `distinct` are set on the inner
+  `type` argument.
+
+- `sch_nest()`: A set of columns stored as a nested list-column of data
+  frames. Must be given a name in the outer `sch_schema()`.
 
 - `sch_numeric()`: A numeric vector that is optionally constrained to be
   within a certain range.
@@ -224,10 +252,11 @@ An object of class `sch_schema`,
 
 - `sch_list_of()`: A vector satisfying `inherits(_, class)`.
 
-- `sch_custom()`: A custom type defined by user-provided check, error,
-  and coercion functions. Additional named values to be stored along
-  with the type specification may be passed via `...` and will be
-  available to the check, error, and coercion functions.
+- `sch_custom()`: A custom type defined by user-provided check, type
+  message, and coercion functions. Additional named values to be stored
+  along with the type specification may be passed via `...` and will be
+  available to the check, message, and coercion function as elements of
+  the `type` argument.
 
 ## Examples
 
@@ -246,9 +275,9 @@ sch_schema(
     sch_others()
 )
 #> Student data
-#> A schema with 4 required columns:
+#> A schema with 4 required elements:
 #>      age  Age in years: An integer vector with values in [0, 130].
-#> birthday  Date of birth: A date vector. [Optional]
+#> birthday  (optional) Date of birth: A date vector.
 #>   height  Height in inches: A numeric vector with values in (0, 108].
 #>  teacher  A factor; one of Jones, Smith, or Hernandez.
 #> enrolled  A logical vector. No NAs allowed.
@@ -256,24 +285,19 @@ sch_schema(
 
 sch_schema(
     .desc = "MCMC draws",
-    draw = sch_integer(
-        "Draw number",
-        bounds = c(1, Inf),
-        closed = c(TRUE, FALSE),
-        distinct = TRUE
-    ),
-    sch_nest(
-        param = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
-        value = sch_numeric("Parameter value"),
-        .keys = "param"
-    )
+    .relationships = ~ chain * draw * parameter,
+    chain = sch_integer("Chain number"),
+    draw = sch_integer("Draw number", bounds = c(1, Inf), closed = c(TRUE, FALSE)),
+    parameter = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
+    value = sch_numeric("Parameter value")
 )
 #> MCMC draws
-#> A schema with 2 required columns:
-#> draw  Draw number: An integer vector with values in [1, Inf). [Distinct]
-#>       (flat):
-#>       param  Parameter name: A factor; one of mu, sigma, or log_lik.
-#>       value  Parameter value: A numeric vector.
+#> A schema with 4 required elements:
+#>     chain  Chain number: An integer vector.
+#>      draw  Draw number: An integer vector with values in [1, Inf).
+#> parameter  Parameter name: A factor; one of mu, sigma, or log_lik.
+#>     value  Parameter value: A numeric vector.
+#> Relationships: chain × draw × parameter
 
 sch_custom(
    name = "even",

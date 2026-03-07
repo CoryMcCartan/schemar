@@ -43,7 +43,7 @@ types, missing values, uniqueness constraints, and nesting structure.</p>
     <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">sch_validate</span><span class="op">(</span></span>
 <span>  <span class="va">schema</span>,</span>
 <span>  <span class="va">data</span>,</span>
-<span>  check <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"names"</span>, <span class="st">"types"</span>, <span class="st">"distinct"</span>, <span class="st">"nesting"</span><span class="op">)</span>,</span>
+<span>  check <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"names"</span>, <span class="st">"types"</span>, <span class="st">"distinct"</span>, <span class="st">"relationships"</span><span class="op">)</span>,</span>
 <span>  call <span class="op">=</span> <span class="fu">rlang</span><span class="fu">::</span><span class="fu"><a href="https://rlang.r-lib.org/reference/stack.html" class="external-link">caller_env</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
@@ -66,8 +66,8 @@ default runs all checks. Possible values:</p><ul><li><p><code>"names"</code>: ch
 <li><p><code>"types"</code>: check column types and missing-value (<code>NA</code>) constraints.</p></li>
 <li><p><code>"distinct"</code>: check uniqueness constraints for columns marked
 <code>distinct = TRUE</code>. Relatively expensive.</p></li>
-<li><p><code>"nesting"</code>: validate nested schema columns (flat and named nests),
-including key consistency. Relatively expensive.</p></li>
+<li><p><code>"relationships"</code>: validate relationship formulas (primary-key uniqueness
+and crossing/nesting completeness). Relatively expensive.</p></li>
 </ul></dd>
 
 

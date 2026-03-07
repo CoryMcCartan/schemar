@@ -10,7 +10,7 @@ structure.
 sch_validate(
   schema,
   data,
-  check = c("names", "types", "distinct", "nesting"),
+  check = c("names", "types", "distinct", "relationships"),
   call = rlang::caller_env()
 )
 ```
@@ -39,8 +39,8 @@ sch_validate(
   - `"distinct"`: check uniqueness constraints for columns marked
     `distinct = TRUE`. Relatively expensive.
 
-  - `"nesting"`: validate nested schema columns (flat and named nests),
-    including key consistency. Relatively expensive.
+  - `"relationships"`: validate relationship formulas (primary-key
+    uniqueness and crossing/nesting completeness). Relatively expensive.
 
 - call:
 

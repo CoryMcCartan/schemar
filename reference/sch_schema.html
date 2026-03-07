@@ -43,11 +43,21 @@ Schemas support nesting relationships.</p>
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">sch_schema</span><span class="op">(</span><span class="va">...</span>, .desc <span class="op">=</span> <span class="cn">NULL</span><span class="op">)</span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">sch_schema</span><span class="op">(</span><span class="va">...</span>, .desc <span class="op">=</span> <span class="cn">NULL</span>, .relationships <span class="op">=</span> <span class="cn">NULL</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu">sch_others</span><span class="op">(</span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu">sch_nest</span><span class="op">(</span><span class="va">...</span>, .keys <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">character</a></span><span class="op">(</span><span class="fl">0</span><span class="op">)</span>, .desc <span class="op">=</span> <span class="cn">NULL</span><span class="op">)</span></span>
+<span><span class="fu">sch_multiple</span><span class="op">(</span></span>
+<span>  <span class="va">name</span>,</span>
+<span>  <span class="va">type</span>,</span>
+<span>  desc <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  required <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  check <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  msg <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  coerce <span class="op">=</span> <span class="cn">NULL</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu">sch_nest</span><span class="op">(</span><span class="va">...</span>, .desc <span class="op">=</span> <span class="cn">NULL</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu">sch_numeric</span><span class="op">(</span></span>
 <span>  desc <span class="op">=</span> <span class="cn">NULL</span>,</span>
@@ -137,19 +147,30 @@ where <code>col_type</code> is a call to a column type constructor listed here, 
 as <code>sch_numeric()</code>. Every type must be a kind of vector, i.e.,
 <code><a href="https://vctrs.r-lib.org/reference/vector-checks.html" class="external-link">vctrs::obj_is_vector()</a></code> must return <code>TRUE</code>.</p>
 <p>All columns must be named, except for <code>sch_others()</code>, as described below,
-and unnamed <code>sch_nest()</code>, which describes a set of columns which are
-logically nested within the outer columns but are stored flat in the actual
-data frame. A named <code>sch_nest()</code> describes columns stored as a nested
-data frame.</p>
+and <code>sch_multiple()</code>, which describes a group of columns sharing the same
+type. A named <code>sch_nest()</code> describes columns stored as a nested data frame.</p>
 <p>The special function <code>sch_others()</code> indicates the preferred location of
 other columns not explicitly mentioned in the schema. If no <code>sch_others()</code>
 appears, then other columns are not allowed.
 Trailing commas are permitted.</p></dd>
 
 
-<dt id="arg--keys">.keys<a class="anchor" aria-label="anchor" href="#arg--keys"></a></dt>
-<dd><p>A character vector selecting one or more column names from <code>...</code>
-that serve as the key columns for the nested group.</p></dd>
+<dt id="arg--relationships">.relationships<a class="anchor" aria-label="anchor" href="#arg--relationships"></a></dt>
+<dd><p>An optional one-sided formula describing the structural
+relationships between values in different columns. Formulas can only involve
+named arguments to <code>...</code>. Use <code>*</code> to signify crossed levels, which will
+verify all combinations exist, <code>/</code> to signify nested levels, and <code>+</code> to create
+compound keys (bundling columns into a single identifier).
+See the examples below.</p></dd>
+
+
+<dt id="arg-name">name<a class="anchor" aria-label="anchor" href="#arg-name"></a></dt>
+<dd><p>A name for the custom type.</p></dd>
+
+
+<dt id="arg-type">type<a class="anchor" aria-label="anchor" href="#arg-type"></a></dt>
+<dd><p>A column type constructor (e.g. <code>sch_numeric()</code>) specifying the
+expected type of every column in the group.</p></dd>
 
 
 <dt id="arg-desc-desc">desc, .desc<a class="anchor" aria-label="anchor" href="#arg-desc-desc"></a></dt>
@@ -158,6 +179,29 @@ The type contraints will be described separately and do not need to be
 included in the description.  For example for "age", the description might
 be "Age of the patient in years", not "Non-negative integer representing
 the age of the patient in years".</p></dd>
+
+
+<dt id="arg-required">required<a class="anchor" aria-label="anchor" href="#arg-required"></a></dt>
+<dd><p>If <code>TRUE</code> (default), the group entry in <code>sch_groups</code> must
+contain at least one column name. If <code>FALSE</code>, an empty character vector
+for that entry is also accepted.</p></dd>
+
+
+<dt id="arg-check">check<a class="anchor" aria-label="anchor" href="#arg-check"></a></dt>
+<dd><p>A two-argument function that checks whether an object satisfies
+the type. The first argument is the object to check, and the second is the
+full type specification.</p></dd>
+
+
+<dt id="arg-msg">msg<a class="anchor" aria-label="anchor" href="#arg-msg"></a></dt>
+<dd><p>A one-argument function that generates a descriptive message
+about the type when passed the type object itself. Should not end with a period.</p></dd>
+
+
+<dt id="arg-coerce">coerce<a class="anchor" aria-label="anchor" href="#arg-coerce"></a></dt>
+<dd><p>A two-argument function that attempts to coerce an object to the
+type. The first argument is the object to coerce, and the second is the full
+type specification.</p></dd>
 
 
 <dt id="arg-bounds">bounds<a class="anchor" aria-label="anchor" href="#arg-bounds"></a></dt>
@@ -172,11 +216,6 @@ closed (inclusive) or open (exclusive).</p></dd>
 <dt id="arg-missing">missing<a class="anchor" aria-label="anchor" href="#arg-missing"></a></dt>
 <dd><p>If <code>TRUE</code>, the column may be contain missing values. Otherwise,
 any missing values result in an error.</p></dd>
-
-
-<dt id="arg-required">required<a class="anchor" aria-label="anchor" href="#arg-required"></a></dt>
-<dd><p>If <code>TRUE</code>, the column must be present. If <code>FALSE</code>, the column
-is optional.</p></dd>
 
 
 <dt id="arg-distinct">distinct<a class="anchor" aria-label="anchor" href="#arg-distinct"></a></dt>
@@ -196,27 +235,6 @@ If <code>FALSE</code>, character vectors with the specified levels are also acce
 <dt id="arg-class">class<a class="anchor" aria-label="anchor" href="#arg-class"></a></dt>
 <dd><p>A character vector of class names.</p></dd>
 
-
-<dt id="arg-name">name<a class="anchor" aria-label="anchor" href="#arg-name"></a></dt>
-<dd><p>A name for the custom type.</p></dd>
-
-
-<dt id="arg-check">check<a class="anchor" aria-label="anchor" href="#arg-check"></a></dt>
-<dd><p>A two-argument function that checks whether an object satisfies
-the type. The first argument is the object to check, and the second is the
-full type specification.</p></dd>
-
-
-<dt id="arg-msg">msg<a class="anchor" aria-label="anchor" href="#arg-msg"></a></dt>
-<dd><p>A one-argument function that generates a descriptive message
-about the type when passed the type object itself. Should not end with a period.</p></dd>
-
-
-<dt id="arg-coerce">coerce<a class="anchor" aria-label="anchor" href="#arg-coerce"></a></dt>
-<dd><p>A two-argument function that attempts to coerce an object to the
-type. The first argument is the object to coerce, and the second is the full
-type specification.</p></dd>
-
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
@@ -226,11 +244,18 @@ type specification.</p></dd>
     <h2 id="functions">Functions<a class="anchor" aria-label="anchor" href="#functions"></a></h2>
 
 <ul><li><p><code>sch_others()</code>: A placeholder for other non-required columns in a schema.</p></li>
-<li><p><code>sch_nest()</code>: A set of columns that are logically nested within the
-outer schema. If given a name in the outer <code>sch_schema()</code>, the columns are
-stored as a nested data frame. If unnamed, the columns are stored flat
-(adjacent to the outer columns). The unique combinations of rows defined
-by <code>.keys</code> must repeat identically across groups defined by the outer columns.</p></li>
+<li><p><code>sch_multiple()</code>: A group of multiple columns sharing the same type. The
+group is identified by <code>name</code>, which must appear as an entry in the
+<code>sch_groups</code> attribute of the data frame being validated. That entry is a
+character vector of column names that belong to this group.</p>
+<p>Optionally accepts cross-column <code>check</code>, <code>msg</code>, and <code>coerce</code> functions that
+are applied to the entire group after per-column type checks pass. These
+must all be provided together or not at all.</p>
+<p><code>sch_multiple()</code> must be unnamed in an <code>sch_schema()</code> call. Per-column
+constraints such as <code>missing</code> and <code>distinct</code> are set on the inner <code>type</code>
+argument.</p></li>
+<li><p><code>sch_nest()</code>: A set of columns stored as a nested list-column of
+data frames. Must be given a name in the outer <code>sch_schema()</code>.</p></li>
 <li><p><code>sch_numeric()</code>: A numeric vector that is optionally constrained to be
 within a certain range.</p></li>
 <li><p><code>sch_integer()</code>: An integer vector that is optionally constrained to be
@@ -244,10 +269,10 @@ within a certain range.</p></li>
 within a certain range.</p></li>
 <li><p><code>sch_inherits()</code>: A list-column whose elements satisfy <code>inherits(_, class)</code>.</p></li>
 <li><p><code>sch_list_of()</code>: A vector satisfying <code>inherits(_, class)</code>.</p></li>
-<li><p><code>sch_custom()</code>: A custom type defined by user-provided check, error,
+<li><p><code>sch_custom()</code>: A custom type defined by user-provided check, type message,
 and coercion functions. Additional named values to be stored along with the
 type specification may be passed via <code>...</code> and will be available to the
-check, error, and coercion functions.</p></li>
+check, message, and coercion function as elements of the <code>type</code> argument.</p></li>
 </ul></div>
 
     <div class="section level2">
@@ -266,9 +291,9 @@ check, error, and coercion functions.</p></li>
 <span class="r-in"><span>    <span class="fu">sch_others</span><span class="op">(</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="op">)</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> <span style="font-weight: bold;">Student data</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #555555;">A schema with 4 required columns:</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #555555;">A schema with 4 required elements:</span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>      <span style="color: #00BB00;">age</span>  Age in years: An integer vector with values in [0, 130].</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #00BB00;">birthday</span>  Date of birth: A date vector. [Optional]</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #00BB00;">birthday</span>  <span style="color: #555555;">(optional)</span> Date of birth: A date vector.</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>   <span style="color: #00BB00;">height</span>  Height in inches: A numeric vector with values in (0, 108].</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>  <span style="color: #00BB00;">teacher</span>  A factor; one of <span style="font-weight: bold;">Jones</span>, <span style="font-weight: bold;">Smith</span>, or <span style="font-weight: bold;">Hernandez</span>.</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #00BB00;">enrolled</span>  A logical vector. No NAs allowed.</span>
@@ -276,24 +301,19 @@ check, error, and coercion functions.</p></li>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="fu">sch_schema</span><span class="op">(</span></span></span>
 <span class="r-in"><span>    .desc <span class="op">=</span> <span class="st">"MCMC draws"</span>,</span></span>
-<span class="r-in"><span>    draw <span class="op">=</span> <span class="fu">sch_integer</span><span class="op">(</span></span></span>
-<span class="r-in"><span>        <span class="st">"Draw number"</span>,</span></span>
-<span class="r-in"><span>        bounds <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">1</span>, <span class="cn">Inf</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>        closed <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="cn">TRUE</span>, <span class="cn">FALSE</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>        distinct <span class="op">=</span> <span class="cn">TRUE</span></span></span>
-<span class="r-in"><span>    <span class="op">)</span>,</span></span>
-<span class="r-in"><span>    <span class="fu">sch_nest</span><span class="op">(</span></span></span>
-<span class="r-in"><span>        param <span class="op">=</span> <span class="fu">sch_factor</span><span class="op">(</span><span class="st">"Parameter name"</span>, levels <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"mu"</span>, <span class="st">"sigma"</span>, <span class="st">"log_lik"</span><span class="op">)</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>        value <span class="op">=</span> <span class="fu">sch_numeric</span><span class="op">(</span><span class="st">"Parameter value"</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>        .keys <span class="op">=</span> <span class="st">"param"</span></span></span>
-<span class="r-in"><span>    <span class="op">)</span></span></span>
+<span class="r-in"><span>    .relationships <span class="op">=</span> <span class="op">~</span> <span class="va">chain</span> <span class="op">*</span> <span class="va">draw</span> <span class="op">*</span> <span class="va">parameter</span>,</span></span>
+<span class="r-in"><span>    chain <span class="op">=</span> <span class="fu">sch_integer</span><span class="op">(</span><span class="st">"Chain number"</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    draw <span class="op">=</span> <span class="fu">sch_integer</span><span class="op">(</span><span class="st">"Draw number"</span>, bounds <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">1</span>, <span class="cn">Inf</span><span class="op">)</span>, closed <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="cn">TRUE</span>, <span class="cn">FALSE</span><span class="op">)</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    parameter <span class="op">=</span> <span class="fu">sch_factor</span><span class="op">(</span><span class="st">"Parameter name"</span>, levels <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"mu"</span>, <span class="st">"sigma"</span>, <span class="st">"log_lik"</span><span class="op">)</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    value <span class="op">=</span> <span class="fu">sch_numeric</span><span class="op">(</span><span class="st">"Parameter value"</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="op">)</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> <span style="font-weight: bold;">MCMC draws</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #555555;">A schema with 2 required columns:</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #00BB00;">draw</span>  Draw number: An integer vector with values in [1, Inf). [Distinct]</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>       <span style="color: #555555;">(flat)</span>:</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>       <span style="color: #00BB00;">param</span>  Parameter name: A factor; one of <span style="font-weight: bold;">mu</span>, <span style="font-weight: bold;">sigma</span>, or <span style="font-weight: bold;">log_lik</span>.</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>       <span style="color: #00BB00;">value</span>  Parameter value: A numeric vector.</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #555555;">A schema with 4 required elements:</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>     <span style="color: #00BB00;">chain</span>  Chain number: An integer vector.</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>      <span style="color: #00BB00;">draw</span>  Draw number: An integer vector with values in [1, Inf).</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #00BB00;">parameter</span>  Parameter name: A factor; one of <span style="font-weight: bold;">mu</span>, <span style="font-weight: bold;">sigma</span>, or <span style="font-weight: bold;">log_lik</span>.</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>     <span style="color: #00BB00;">value</span>  Parameter value: A numeric vector.</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #555555;">Relationships:</span> <span style="font-style: italic;">chain × draw × parameter</span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="fu">sch_custom</span><span class="op">(</span></span></span>
 <span class="r-in"><span>   name <span class="op">=</span> <span class="st">"even"</span>,</span></span>
