@@ -784,7 +784,11 @@ format_schema_cols <- function(cols, ansi = FALSE, depth = 0L) {
             nms = c(nms, "...")
             levels = c(levels, depth)
         } else if (tt$type == "schema_nest") {
-            mode_label = "(nested)"
+            constraint_parts = c(
+                if (!attr(tt, "required")) "optional"
+            )
+            all_parts = c(constraint_parts, "nested")
+            mode_label = paste0("(", paste(all_parts, collapse = "; "), ")")
             if (isTRUE(ansi)) {
                 mode_label = cli::col_grey(mode_label)
             }
@@ -803,7 +807,12 @@ format_schema_cols <- function(cols, ansi = FALSE, depth = 0L) {
             nms = c(nms, inner$nms)
             levels = c(levels, inner$levels)
         } else if (tt$type == "schema_multiple") {
-            mode_label = "(multiple)"
+            constraint_parts = c(
+                if (!attr(tt, "required")) "optional",
+                if (attr(tt$inner, "distinct")) "distinct"
+            )
+            all_parts = c(constraint_parts, "multiple")
+            mode_label = paste0("(", paste(all_parts, collapse = "; "), ")")
             if (isTRUE(ansi)) {
                 mode_label = cli::col_grey(mode_label)
             }
@@ -817,9 +826,7 @@ format_schema_cols <- function(cols, ansi = FALSE, depth = 0L) {
             inner_fmt = paste0(
                 inner_fmt,
                 ".",
-                if (!attr(tt$inner, "missing")) " No NAs allowed.",
-                if (attr(tt$inner, "distinct")) " [Distinct]",
-                if (!attr(tt, "required")) " [Optional group]"
+                if (!attr(tt$inner, "missing")) " No NAs allowed."
             )
             if (!is.null(tt$cross_msg)) {
                 inner_fmt = paste0(inner_fmt, " Cross-column: ", tt$cross_msg(tt), ".")
@@ -834,13 +841,23 @@ format_schema_cols <- function(cols, ansi = FALSE, depth = 0L) {
             fmt = paste0(
                 fmt,
                 ".",
-                if (!attr(tt, "missing")) " No NAs allowed.",
-                if (!attr(tt, "required")) " [Optional]",
-                if (attr(tt, "distinct")) " [Distinct]"
+                if (!attr(tt, "missing")) " No NAs allowed."
             )
             names(fmt) = desc_nm
             if (!is.null(names(fmt))) {
                 fmt = paste0(names(fmt), ": ", fmt)
+            }
+            # Add constraint label at the very start
+            constraint_parts = c(
+                if (!attr(tt, "required")) "optional",
+                if (attr(tt, "distinct")) "distinct"
+            )
+            if (length(constraint_parts) > 0L) {
+                constraint_label = paste0("(", paste(constraint_parts, collapse = "; "), ")")
+                if (isTRUE(ansi)) {
+                    constraint_label = cli::col_grey(constraint_label)
+                }
+                fmt = paste0(constraint_label, " ", fmt)
             }
             out = c(out, unname(fmt))
             nms = c(nms, col_nm)

@@ -35,6 +35,11 @@ schema <- sch_schema(
         desc = "Vote share estimates",
         type = sch_numeric(missing = FALSE),
     ),
+    sch_multiple(
+        name = "covariates",
+        type = sch_numeric(missing = FALSE),
+        required = FALSE,
+    ),
     total = sch_numeric("Total individuals per unit", bounds = c(1, Inf), missing = FALSE),
     sch_others()
 )

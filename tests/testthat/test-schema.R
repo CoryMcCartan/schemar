@@ -338,7 +338,7 @@ test_that("format.sch_schema() appends optional/no-NA notes", {
     )
     fmt <- format(x)
     expect_match(fmt["a"], "No NAs allowed")
-    expect_match(fmt["b"], "Optional")
+    expect_match(fmt["b"], "optional")
 })
 
 test_that("print.sch_schema() runs without error", {
@@ -513,8 +513,8 @@ test_that("[Distinct] flag appears in schema print output for distinct columns",
     output <- capture.output(print(x))
     output_text <- paste(output, collapse = "\n")
 
-    # Check that [Distinct] flag appears in output
-    expect_match(output_text, "\\[Distinct\\]")
+    # Check that (distinct) flag appears in output
+    expect_match(output_text, "\\(distinct\\)")
 })
 
 test_that("[Distinct] flag does not appear for non-distinct columns", {
@@ -525,8 +525,8 @@ test_that("[Distinct] flag does not appear for non-distinct columns", {
     output <- capture.output(print(x))
     output_text <- paste(output, collapse = "\n")
 
-    # [Distinct] flag should not appear
-    expect_false(grepl("\\[Distinct\\]", output_text))
+    # (distinct) flag should not appear
+    expect_false(grepl("\\(distinct\\)", output_text))
 })
 
 test_that("[Distinct] and [Optional] flags work together", {
@@ -537,9 +537,9 @@ test_that("[Distinct] and [Optional] flags work together", {
     output <- capture.output(print(x))
     output_text <- paste(output, collapse = "\n")
 
-    # Both flags should appear
-    expect_match(output_text, "\\[Distinct\\]")
-    expect_match(output_text, "\\[Optional\\]")
+    # Both flags should appear (may be combined as "(optional; distinct)")
+    expect_match(output_text, "distinct")
+    expect_match(output_text, "optional")
 })
 
 test_that("Nested schema columns show [Distinct] flag", {
@@ -553,7 +553,7 @@ test_that("Nested schema columns show [Distinct] flag", {
     output <- capture.output(print(x))
     output_text <- paste(output, collapse = "\n")
 
-    expect_match(output_text, "\\[Distinct\\]")
+    expect_match(output_text, "\\(distinct\\)")
 })
 
 # Regression tests: strict factor level validation ----
