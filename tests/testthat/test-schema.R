@@ -111,6 +111,16 @@ test_that("sch_character() returns correct structure", {
     expect_equal(x$type, "character")
 })
 
+test_that("sch_any() returns correct structure", {
+    x <- sch_any("Any type column", missing = FALSE, distinct = TRUE)
+    expect_s3_class(x, "sch_type")
+    expect_equal(x$type, "any")
+    expect_equal(attr(x, "desc"), "Any type column")
+    expect_false(attr(x, "missing"))
+    expect_true(attr(x, "required"))
+    expect_true(attr(x, "distinct"))
+})
+
 test_that("sch_factor() returns correct structure", {
     levs <- c("a", "b", "c")
     x <- sch_factor(levels = levs)
@@ -950,6 +960,18 @@ test_that("sch_schema() accepts .relationships formula", {
 test_that("sch_schema() with .relationships = NULL stores no relationships", {
     x <- sch_schema(a = sch_integer())
     expect_null(x$relationships)
+})
+
+test_that("sch_schema() allows a named sch_nest() column in .relationships", {
+    expect_no_error(sch_schema(
+        .relationships = ~ (grade + teacher) / table_group,
+        grade = sch_factor(strict = FALSE, levels = c("Kindergarten", "1st", "2nd")),
+        teacher = sch_nest(
+            first = sch_character(),
+            last = sch_character()
+        ),
+        table_group = sch_integer()
+    ))
 })
 
 test_that("sch_schema() errors when .relationships references non-existent column", {

@@ -3,6 +3,7 @@
 \name{sch_schema}
 \alias{sch_schema}
 \alias{sch_others}
+\alias{sch_any}
 \alias{sch_multiple}
 \alias{sch_nest}
 \alias{sch_numeric}
@@ -20,6 +21,8 @@
 sch_schema(..., .desc = NULL, .relationships = NULL)
 
 sch_others()
+
+sch_any(desc = NULL, missing = TRUE, required = TRUE, distinct = FALSE)
 
 sch_multiple(
   name,
@@ -132,20 +135,26 @@ verify all combinations exist, \code{/} to signify nested levels, and \code{+} t
 compound keys (bundling columns into a single identifier).
 See the examples below.}
 
-\item{name}{A name for the custom type.}
-
-\item{type}{A column type constructor (e.g. \code{\link[=sch_numeric]{sch_numeric()}}) specifying the
-expected type of every column in the group.}
-
 \item{desc, .desc}{A description of the column for consumers of the schema.
 The type contraints will be described separately and do not need to be
 included in the description.  For example for "age", the description might
 be "Age of the patient in years", not "Non-negative integer representing
 the age of the patient in years".}
 
+\item{missing}{If \code{TRUE}, the column may be contain missing values. Otherwise,
+any missing values result in an error.}
+
 \item{required}{If \code{TRUE} (default), the group entry in \code{sch_groups} must
 contain at least one column name. If \code{FALSE}, an empty character vector
 for that entry is also accepted.}
+
+\item{distinct}{If \code{TRUE}, the column must contain no duplicate values (after
+accounting for nesting structure).}
+
+\item{name}{A name for the custom type.}
+
+\item{type}{A column type constructor (e.g. \code{\link[=sch_numeric]{sch_numeric()}}) specifying the
+expected type of every column in the group.}
 
 \item{check}{A two-argument function that checks whether an object satisfies
 the type. The first argument is the object to check, and the second is the
@@ -162,12 +171,6 @@ type specification.}
 
 \item{closed}{Length-two logical vector specifying whether the bounds are
 closed (inclusive) or open (exclusive).}
-
-\item{missing}{If \code{TRUE}, the column may be contain missing values. Otherwise,
-any missing values result in an error.}
-
-\item{distinct}{If \code{TRUE}, the column must contain no duplicate values (after
-accounting for nesting structure).}
 
 \item{levels}{A character vector of factor levels, or NULL not enforce specific levels.}
 
@@ -187,6 +190,8 @@ Schemas support nesting relationships.
 \section{Functions}{
 \itemize{
 \item \code{sch_others()}: A placeholder for other non-required columns in a schema.
+
+\item \code{sch_any()}: A column of any type. No type checking is performed.
 
 \item \code{sch_multiple()}: A group of multiple columns sharing the same type. The
 group is identified by \code{name}, which must appear as an entry in the
@@ -234,26 +239,39 @@ check, message, and coercion function as elements of the \code{type} argument.
 }}
 \examples{
 sch_schema(
-    .desc = "Student data",
-    age = sch_integer("Age in years", bounds = c(0, 130)),
-    birthday = sch_date("Date of birth", required = FALSE),
-    height = sch_numeric(
-        "Height in inches",
-        bounds = c(0, 108),
-        closed = c(FALSE, TRUE)
-    ),
-    teacher = sch_factor(levels = c("Jones", "Smith", "Hernandez")),
-    enrolled = sch_logical(missing = FALSE),
-    sch_others()
-)
-
-sch_schema(
     .desc = "MCMC draws",
     .relationships = ~ chain * draw * parameter,
     chain = sch_integer("Chain number"),
     draw = sch_integer("Draw number", bounds = c(1, Inf), closed = c(TRUE, FALSE)),
     parameter = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
     value = sch_numeric("Parameter value")
+)
+
+sch_schema(
+    .desc = "Student data",
+    .relationships = ~ (grade + teacher) / table_group,
+    birthday = sch_date("Date of birth", required = FALSE),
+    height = sch_numeric(
+        "Height in inches",
+        bounds = c(0, 108),
+        closed = c(FALSE, TRUE)
+    ),
+    grade = sch_factor(strict = FALSE, levels = c("Kindergarten", "1st", "2nd")),
+    teacher = sch_nest(
+        first = sch_character("First name"),
+        last = sch_character("Last name")
+    ),
+    table_group = sch_integer(bounds=c(1, 6)),
+    enrolled = sch_logical(missing = FALSE),
+    sch_others()
+)
+
+sch_schema(
+    .desc = "Causal inference data",
+    treatment = sch_factor(levels = c("control", "treatment"), missing = FALSE),
+    outcome = sch_numeric(missing = FALSE),
+    sch_multiple("covariates", type = sch_any(missing = FALSE), required = FALSE),
+    sch_others()
 )
 
 sch_custom(

@@ -138,6 +138,66 @@ test_that("inherits type check works", {
     expect_no_error(sch_validate(schema, df))
 })
 
+test_that("sch_any() accepts any type", {
+    schema <- sch_schema(x = sch_any())
+    # Test with numeric
+    df_numeric <- data.frame(x = c(1.5, 2.5))
+    expect_no_error(sch_validate(schema, df_numeric))
+    # Test with character
+    df_char <- data.frame(x = c("a", "b"))
+    expect_no_error(sch_validate(schema, df_char))
+    # Test with logical
+    df_logical <- data.frame(x = c(TRUE, FALSE))
+    expect_no_error(sch_validate(schema, df_logical))
+    # Test with factor
+    df_factor <- data.frame(x = factor(c("a", "b")))
+    expect_no_error(sch_validate(schema, df_factor))
+})
+
+test_that("sch_any() with mixed types passes", {
+    schema <- sch_schema(
+        a = sch_numeric(),
+        b = sch_any(),
+        c = sch_any()
+    )
+    df <- data.frame(
+        a = c(1.1, 2.2),
+        b = c("x", "y"),
+        c = c(100, 200)
+    )
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("sch_any() respects missing=FALSE", {
+    schema <- sch_schema(x = sch_any(missing = FALSE))
+    df <- data.frame(x = c(1, NA))
+    expect_error(sch_validate(schema, df), "missing values")
+})
+
+test_that("sch_any() respects missing=TRUE", {
+    schema <- sch_schema(x = sch_any(missing = TRUE))
+    df <- data.frame(x = c(1, NA))
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("sch_any() respects required=FALSE", {
+    schema <- sch_schema(x = sch_any(required = FALSE))
+    df <- data.frame()
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("sch_any() with distinct=TRUE detects duplicates", {
+    schema <- sch_schema(x = sch_any(distinct = TRUE))
+    df <- data.frame(x = c(1, 1, 2))
+    expect_error(sch_validate(schema, df), "duplicate")
+})
+
+test_that("sch_any() with distinct=TRUE allows unique values", {
+    schema <- sch_schema(x = sch_any(distinct = TRUE))
+    df <- data.frame(x = c(1, 2, 3))
+    expect_no_error(sch_validate(schema, df))
+})
+
 # Extra columns ----------------------------------------------------------
 
 test_that("extra columns without sch_others() raises error", {
@@ -1063,4 +1123,32 @@ test_that("sch_multiple: inner distinct=TRUE skips missing group columns", {
     # vals_b is in the group but missing from data — should skip and raise error for missing column
     err <- expect_error(sch_validate(schema, df), class = "sch_validation_error")
     expect_match(conditionMessage(err), "missing")
+})
+
+# .relationships with nested columns ------------------------------------
+
+test_that("relationships: named sch_nest() column accepted as part of compound key", {
+    schema <- sch_schema(
+        .relationships = ~ (grade + teacher) / table_group,
+        grade = sch_factor(strict = FALSE, levels = c("Kindergarten", "1st", "2nd")),
+        teacher = sch_nest(
+            first = sch_character(),
+            last = sch_character()
+        ),
+        table_group = sch_integer()
+    )
+
+    smith_k <- data.frame(first = "Jane", last = "Smith")
+    jones_1 <- data.frame(first = "Bob", last = "Jones")
+
+    df <- data.frame(
+        grade = factor(
+            c("Kindergarten", "1st"),
+            levels = c("Kindergarten", "1st", "2nd")
+        ),
+        table_group = c(1L, 2L)
+    )
+    df$teacher <- list(smith_k, jones_1)
+
+    expect_no_error(sch_validate(schema, df))
 })

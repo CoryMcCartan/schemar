@@ -38,26 +38,39 @@
 #' @returns An object of class `sch_schema`,
 #' @examples
 #' sch_schema(
-#'     .desc = "Student data",
-#'     age = sch_integer("Age in years", bounds = c(0, 130)),
-#'     birthday = sch_date("Date of birth", required = FALSE),
-#'     height = sch_numeric(
-#'         "Height in inches",
-#'         bounds = c(0, 108),
-#'         closed = c(FALSE, TRUE)
-#'     ),
-#'     teacher = sch_factor(levels = c("Jones", "Smith", "Hernandez")),
-#'     enrolled = sch_logical(missing = FALSE),
-#'     sch_others()
-#' )
-#'
-#' sch_schema(
 #'     .desc = "MCMC draws",
 #'     .relationships = ~ chain * draw * parameter,
 #'     chain = sch_integer("Chain number"),
 #'     draw = sch_integer("Draw number", bounds = c(1, Inf), closed = c(TRUE, FALSE)),
 #'     parameter = sch_factor("Parameter name", levels = c("mu", "sigma", "log_lik")),
 #'     value = sch_numeric("Parameter value")
+#' )
+#'
+#' sch_schema(
+#'     .desc = "Student data",
+#'     .relationships = ~ (grade + teacher) / table_group,
+#'     birthday = sch_date("Date of birth", required = FALSE),
+#'     height = sch_numeric(
+#'         "Height in inches",
+#'         bounds = c(0, 108),
+#'         closed = c(FALSE, TRUE)
+#'     ),
+#'     grade = sch_factor(strict = FALSE, levels = c("Kindergarten", "1st", "2nd")),
+#'     teacher = sch_nest(
+#'         first = sch_character("First name"),
+#'         last = sch_character("Last name")
+#'     ),
+#'     table_group = sch_integer(bounds=c(1, 6)),
+#'     enrolled = sch_logical(missing = FALSE),
+#'     sch_others()
+#' )
+#'
+#' sch_schema(
+#'     .desc = "Causal inference data",
+#'     treatment = sch_factor(levels = c("control", "treatment"), missing = FALSE),
+#'     outcome = sch_numeric(missing = FALSE),
+#'     sch_multiple("covariates", type = sch_any(missing = FALSE), required = FALSE),
+#'     sch_others()
 #' )
 #'
 #' sch_custom(
@@ -111,8 +124,8 @@ sch_schema <- function(..., .desc = NULL, .relationships = NULL) {
         # Collect all column names referenced in the formula
         rel_col_names = relationship_columns(rel_tree)
 
-        # All regular (non-nest, non-other, non-multiple) column names
-        regular_names = names(cols)[!is_other & !is_multiple & !is_nest]
+        # All named columns (excluding unnamed sch_others() and sch_multiple())
+        regular_names = names(cols)[!is_other & !is_multiple]
 
         bad_names = setdiff(rel_col_names, regular_names)
         if (length(bad_names) > 0) {
@@ -160,6 +173,19 @@ sch_others <- function() {
         missing = NA,
         required = FALSE,
         distinct = FALSE,
+        class = "sch_type"
+    )
+}
+
+#' @describeIn sch_schema A column of any type. No type checking is performed.
+#' @export
+sch_any <- function(desc = NULL, missing = TRUE, required = TRUE, distinct = FALSE) {
+    structure(
+        list(type = "any"),
+        desc = check_desc(desc),
+        missing = isTRUE(missing),
+        required = isTRUE(required),
+        distinct = isTRUE(distinct),
         class = "sch_type"
     )
 }
@@ -670,6 +696,12 @@ type_fns = list(
         check = function(x, type) is.character(x),
         msg = function(type) "character vector",
         coerce = as.character
+    ),
+
+    any = list(
+        check = function(x, type) TRUE,
+        msg = function(type) "vector of any type",
+        coerce = function(x, type) x
     ),
 
     inherits = list(
