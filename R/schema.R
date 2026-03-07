@@ -274,12 +274,7 @@ sch_nest <- function(..., .desc = NULL) {
 
 # Formula parsing ---------------------------------------------------------
 
-#' Parse a relationship formula into a tree
-#'
-#' @param formula A one-sided formula (e.g., `~ a * b / c`).
-#' @returns A list representing the parsed tree with `$type` being one of
-#'   `"var"`, `"cross"`, `"nest"`, or `"compound"`.
-#' @export
+# Parse a relationship formula into a tree
 parse_relationship <- function(formula) {
     if (!inherits(formula, "formula")) {
         rlang::abort("{.arg formula} must be a formula.")
@@ -329,10 +324,7 @@ parse_rel_expr <- function(expr) {
     rlang::abort(paste0("Unsupported operator in relationship formula: ", deparse(expr)))
 }
 
-#' Extract all column names from a relationship tree
-#' @param tree A parsed relationship tree (from [parse_relationship()]).
-#' @returns A character vector of unique column names.
-#' @keywords internal
+# Extract all column names from a relationship tree
 relationship_columns <- function(tree) {
     switch(
         tree$type,
@@ -342,44 +334,6 @@ relationship_columns <- function(tree) {
         nest = unique(c(relationship_columns(tree$outer), relationship_columns(tree$inner))),
         rlang::abort(paste0("Unknown relationship node type: ", tree$type))
     )
-}
-
-#' Format a relationship tree as a human-readable string
-#' @param tree A parsed relationship tree.
-#' @returns A single string.
-#' @keywords internal
-format_relationship <- function(tree) {
-    switch(
-        tree$type,
-        var = tree$name,
-        cross = paste(
-            vapply(tree$children, fmt_rel_child, "", parent_type = "cross"),
-            collapse = " \u00d7 "
-        ),
-        compound = {
-            inner = paste(vapply(tree$children, format_relationship, ""), collapse = " + ")
-            paste0("(", inner, ")")
-        },
-        nest = {
-            outer_str = fmt_rel_child(tree$outer, "nest")
-            inner_str = fmt_rel_child(tree$inner, "nest")
-            paste0(outer_str, " / ", inner_str)
-        },
-        rlang::abort(paste0("Unknown relationship node type: ", tree$type))
-    )
-}
-
-# Format a child node, adding parens when the child type conflicts with the parent type
-# (cross child that is a nest node, or nest child that is a cross node)
-fmt_rel_child <- function(child, parent_type) {
-    s <- format_relationship(child)
-    needs_parens <- switch(
-        parent_type,
-        cross = child$type == "nest",
-        nest = child$type == "cross",
-        FALSE
-    )
-    if (needs_parens) paste0("(", s, ")") else s
 }
 
 
@@ -461,19 +415,19 @@ sch_character <- function(desc = NULL, missing = TRUE, required = TRUE, distinct
 }
 
 #' @describeIn sch_schema A factor with specified levels.
-#' @param levels A character vector of factor levels.
+#' @param levels A character vector of factor levels, or NULL not enforce specific levels.
 #' @param strict If `TRUE`, only factors with the specified levels are accepted.
 #'   If `FALSE`, character vectors with the specified levels are also accepted.
 #' @export
 sch_factor <- function(
     desc = NULL,
-    levels,
+    levels = NULL,
     strict = TRUE,
     missing = TRUE,
     required = TRUE,
     distinct = FALSE
 ) {
-    if (!is.character(levels)) {
+    if (!(is.character(levels) || is.null(levels))) {
         rlang::abort("`levels` must be a character vector.")
     }
     structure(
@@ -682,24 +636,33 @@ type_fns = list(
     factor = list(
         check = function(x, type) {
             if (type$strict) {
-                is.factor(x) && identical(levels(x), type$levels)
+                is.factor(x) &&
+                    (is.null(type$levels) || identical(levels(x), type$levels))
             } else {
                 (is.factor(x) || is.character(x)) &&
-                    all(x[!is.na(x)] %in% type$levels)
+                    (is.null(type$levels) || all(x[!is.na(x)] %in% type$levels))
             }
         },
         msg = function(type) {
-            levs = cli::cli_vec(
-                type$levels,
-                list(
-                    "vec-trunc" = 10,
-                    "vec-last" = ", or "
+            out = if (type$strict) "factor" else "factor or character"
+            if (!is.null(type$levels)) {
+                levs = cli::cli_vec(
+                    type$levels,
+                    list(
+                        "vec-trunc" = 10,
+                        "vec-last" = ", or "
+                    )
                 )
-            )
-            cli::format_inline("factor; one of {.strong {levs}}")
+                out = cli::format_inline("{out}; one of {.strong {levs}}")
+            }
+            out
         },
         coerce = function(x, type) {
-            factor(x, levels = type$levels)
+            if (!is.null(type$levels)) {
+                factor(x, levels = type$levels)
+            } else {
+                as.factor(x)
+            }
         }
     ),
 
@@ -768,6 +731,129 @@ check_desc = function(desc) {
 
 # Printing -----------
 
+# Internal helper: formats an "other" column type
+format_col_other <- function(tt, col_nm, ansi, depth) {
+    out = format(tt, ansi = ansi)
+    list(out = c(out), nms = c("..."), levels = c(depth))
+}
+
+# Internal helper: formats a "schema_nest" column type
+format_col_nest <- function(tt, col_nm, ansi, depth) {
+    constraint_parts = c(
+        if (!attr(tt, "required")) "optional"
+    )
+    all_parts = c(constraint_parts, "nested")
+    mode_label = paste0("(", paste(all_parts, collapse = "; "), ")")
+    if (isTRUE(ansi)) {
+        mode_label = cli::col_grey(mode_label)
+    }
+    desc = attr(tt, "desc")
+    hdr = if (!is.null(desc)) {
+        paste0(mode_label, " ", desc, ":")
+    } else {
+        paste0(mode_label, ":")
+    }
+    # Header lives at the current depth; inner columns at depth+1
+    out = c(hdr)
+    nms = c(col_nm)
+    levels = c(depth)
+    inner = format_schema_cols(tt$cols, ansi = ansi, depth = depth + 1L)
+    list(out = c(out, inner$out), nms = c(nms, inner$nms), levels = c(levels, inner$levels))
+}
+
+# Internal helper: formats a "schema_multiple" column type
+format_col_multiple <- function(tt, col_nm, ansi, depth) {
+    constraint_parts = c(
+        if (!attr(tt, "required")) "optional",
+        if (attr(tt$inner, "distinct")) "distinct"
+    )
+    all_parts = c("multiple", constraint_parts)
+    mode_label = paste0("(", paste(all_parts, collapse = "; "), ")")
+    if (isTRUE(ansi)) {
+        mode_label = cli::col_grey(mode_label)
+    }
+    desc = attr(tt, "desc")
+    hdr = if (!is.null(desc)) {
+        paste0(mode_label, " ", desc, ": each ")
+    } else {
+        paste0(mode_label, ": each ")
+    }
+    inner_fmt = format(tt$inner, ansi = ansi, capitalize = FALSE)
+    inner_fmt = paste0(
+        inner_fmt,
+        ".",
+        if (!attr(tt$inner, "missing")) " No NAs allowed."
+    )
+    if (!is.null(tt$cross_msg)) {
+        inner_fmt = paste0(inner_fmt, " Cross-column: ", tt$cross_msg(tt), ".")
+    }
+    combined_fmt = paste0(hdr, unname(inner_fmt))
+    list(out = c(combined_fmt), nms = c(tt$name), levels = c(depth))
+}
+
+# Internal helper: formats a regular column type
+format_col_regular <- function(tt, col_nm, ansi, depth) {
+    fmt = format(tt, ansi = ansi)
+    desc_nm = names(fmt)
+    fmt = paste0(
+        fmt,
+        ".",
+        if (!attr(tt, "missing")) " No NAs allowed."
+    )
+    names(fmt) = desc_nm
+    if (!is.null(names(fmt))) {
+        fmt = paste0(names(fmt), ": ", fmt)
+    }
+    # Add constraint label at the very start
+    constraint_parts = c(
+        if (!attr(tt, "required")) "optional",
+        if (attr(tt, "distinct")) "distinct"
+    )
+    if (length(constraint_parts) > 0L) {
+        constraint_label = paste0("(", paste(constraint_parts, collapse = "; "), ")")
+        if (isTRUE(ansi)) {
+            constraint_label = cli::col_grey(constraint_label)
+        }
+        fmt = paste0(constraint_label, " ", fmt)
+    }
+    list(out = c(unname(fmt)), nms = c(col_nm), levels = c(depth))
+}
+
+# Format a relationship tree as a human-readable string
+format_relationship <- function(tree) {
+    switch(
+        tree$type,
+        var = tree$name,
+        cross = paste(
+            vapply(tree$children, fmt_rel_child, "", parent_type = "cross"),
+            collapse = " \u00d7 "
+        ),
+        compound = {
+            inner = paste(vapply(tree$children, format_relationship, ""), collapse = " + ")
+            paste0("(", inner, ")")
+        },
+        nest = {
+            outer_str = fmt_rel_child(tree$outer, "nest")
+            inner_str = fmt_rel_child(tree$inner, "nest")
+            paste0(outer_str, " / ", inner_str)
+        },
+        rlang::abort(paste0("Unknown relationship node type: ", tree$type))
+    )
+}
+
+# Format a child node, adding parens when the child type conflicts with the parent type
+# (cross child that is a nest node, or nest child that is a cross node)
+fmt_rel_child <- function(child, parent_type) {
+    s <- format_relationship(child)
+    needs_parens <- switch(
+        parent_type,
+        cross = child$type == "nest",
+        nest = child$type == "cross",
+        FALSE
+    )
+    if (needs_parens) paste0("(", s, ")") else s
+}
+
 # Internal helper: recursively formats schema columns, tracking nesting depth.
 # Returns a list(out, nms, levels).
 format_schema_cols <- function(cols, ansi = FALSE, depth = 0L) {
@@ -779,90 +865,17 @@ format_schema_cols <- function(cols, ansi = FALSE, depth = 0L) {
         tt = cols[[i]]
         col_nm = names(cols)[i]
 
-        if (tt$type == "other") {
-            out = c(out, format(tt, ansi = ansi))
-            nms = c(nms, "...")
-            levels = c(levels, depth)
-        } else if (tt$type == "schema_nest") {
-            constraint_parts = c(
-                if (!attr(tt, "required")) "optional"
-            )
-            all_parts = c(constraint_parts, "nested")
-            mode_label = paste0("(", paste(all_parts, collapse = "; "), ")")
-            if (isTRUE(ansi)) {
-                mode_label = cli::col_grey(mode_label)
-            }
-            desc = attr(tt, "desc")
-            hdr = if (!is.null(desc)) {
-                paste0(mode_label, " ", desc, ":")
-            } else {
-                paste0(mode_label, ":")
-            }
-            # Header lives at the current depth; inner columns at depth+1
-            out = c(out, hdr)
-            nms = c(nms, col_nm)
-            levels = c(levels, depth)
-            inner = format_schema_cols(tt$cols, ansi = ansi, depth = depth + 1L)
-            out = c(out, inner$out)
-            nms = c(nms, inner$nms)
-            levels = c(levels, inner$levels)
-        } else if (tt$type == "schema_multiple") {
-            constraint_parts = c(
-                if (!attr(tt, "required")) "optional",
-                if (attr(tt$inner, "distinct")) "distinct"
-            )
-            all_parts = c(constraint_parts, "multiple")
-            mode_label = paste0("(", paste(all_parts, collapse = "; "), ")")
-            if (isTRUE(ansi)) {
-                mode_label = cli::col_grey(mode_label)
-            }
-            desc = attr(tt, "desc")
-            hdr = if (!is.null(desc)) {
-                paste0(mode_label, " ", desc, ": each ")
-            } else {
-                paste0(mode_label, ": each ")
-            }
-            inner_fmt = format(tt$inner, ansi = ansi, capitalize = FALSE)
-            inner_fmt = paste0(
-                inner_fmt,
-                ".",
-                if (!attr(tt$inner, "missing")) " No NAs allowed."
-            )
-            if (!is.null(tt$cross_msg)) {
-                inner_fmt = paste0(inner_fmt, " Cross-column: ", tt$cross_msg(tt), ".")
-            }
-            combined_fmt = paste0(hdr, unname(inner_fmt))
-            out = c(out, combined_fmt)
-            nms = c(nms, tt$name)
-            levels = c(levels, depth)
-        } else {
-            fmt = format(tt, ansi = ansi)
-            desc_nm = names(fmt)
-            fmt = paste0(
-                fmt,
-                ".",
-                if (!attr(tt, "missing")) " No NAs allowed."
-            )
-            names(fmt) = desc_nm
-            if (!is.null(names(fmt))) {
-                fmt = paste0(names(fmt), ": ", fmt)
-            }
-            # Add constraint label at the very start
-            constraint_parts = c(
-                if (!attr(tt, "required")) "optional",
-                if (attr(tt, "distinct")) "distinct"
-            )
-            if (length(constraint_parts) > 0L) {
-                constraint_label = paste0("(", paste(constraint_parts, collapse = "; "), ")")
-                if (isTRUE(ansi)) {
-                    constraint_label = cli::col_grey(constraint_label)
-                }
-                fmt = paste0(constraint_label, " ", fmt)
-            }
-            out = c(out, unname(fmt))
-            nms = c(nms, col_nm)
-            levels = c(levels, depth)
-        }
+        col_result = switch(
+            tt$type,
+            other = format_col_other(tt, col_nm, ansi, depth),
+            schema_nest = format_col_nest(tt, col_nm, ansi, depth),
+            schema_multiple = format_col_multiple(tt, col_nm, ansi, depth),
+            format_col_regular(tt, col_nm, ansi, depth)
+        )
+
+        out = c(out, col_result$out)
+        nms = c(nms, col_result$nms)
+        levels = c(levels, col_result$levels)
     }
     list(out = out, nms = nms, levels = levels)
 }

@@ -47,13 +47,13 @@ schema_elec <- sch_schema(
     # --- Race identifier columns ---
     state = sch_factor("State USPS abbreviation", levels = STATES, strict = FALSE, missing = FALSE),
     election = sch_date("Election date", missing = FALSE),
-    jurisdiction = sch_character("Jurisdiction identifier", missing = FALSE),
+    jurisdiction = sch_factor("Jurisdiction identifier", strict = FALSE, missing = FALSE),
     contest = sch_factor("Contest type", levels = CONTESTS, strict = FALSE, missing = FALSE),
     district = sch_integer("District number", bounds = c(1, Inf)), # NA OK for statewide
     # --- Within-race columns ---
-    geo = sch_character("Geographic unit", missing = FALSE),
+    geo = sch_factor("Geographic unit", strict = FALSE, missing = FALSE),
     party = sch_factor("Party abbreviation", levels = PARTIES, strict = FALSE, missing = FALSE),
-    candidate = sch_character("Candidate name"), # NA OK (e.g. total rows)
+    candidate = sch_factor("Candidate name", strict = FALSE), # NA OK (e.g. total rows)
     time = sch_datetime("Data record timestamp", missing = FALSE),
     method = sch_factor("Vote method", levels = VOTE_METHODS, strict = FALSE, missing = FALSE),
     # --- Outcome columns (not in relationship formula) ---
@@ -119,9 +119,6 @@ sch_validate(schema_elec, df)
 cat("OK\n")
 
 d_nj = enightmodels::nj
-d_nj$jurisdiction = as.character(d_nj$jurisdiction)
-d_nj$geo = as.character(d_nj$geo)
-d_nj$candidate = as.character(d_nj$candidate)
 sch_validate(schema_elec, d_nj)
 
 

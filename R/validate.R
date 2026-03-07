@@ -55,15 +55,9 @@ sch_validate <- function(
     check = rlang::arg_match(check, multiple = TRUE)
     col_info <- classify_columns(schema$cols)
     issues <- list()
-    if ("names" %in% check) {
-        issues <- c(issues, validate_names(schema$cols, data, col_info))
-    }
-    if ("types" %in% check) {
-        issues <- c(issues, validate_types_missing(schema$cols, data, col_info))
-    }
-    if ("distinct" %in% check) {
-        issues <- c(issues, validate_distinct(schema$cols, data, col_info))
-    }
+
+    issues <- c(issues, validate_cols(schema$cols, data, col_info, check))
+
     if (any(c("names", "types", "distinct") %in% check)) {
         issues <- c(issues, validate_nests(schema$cols, data, col_info, check))
     }
@@ -86,7 +80,10 @@ classify_columns <- function(cols) {
     is_other <- vapply(cols, function(x) x$type == "other", FALSE)
     is_nest <- vapply(cols, function(x) x$type == "schema_nest", FALSE)
     is_multiple <- vapply(cols, function(x) x$type == "schema_multiple", FALSE)
-    nms <- names(cols) %||% rep("", length(cols))
+    nms <- names(cols)
+    if (is.null(nms)) {
+        nms <- rep("", length(cols))
+    }
     is_named_nest <- is_nest & nzchar(nms)
 
     list(
@@ -96,6 +93,22 @@ classify_columns <- function(cols) {
         is_multiple = is_multiple,
         is_named_nest = is_named_nest
     )
+}
+
+
+# Run the per-column validators (names, types, distinct) for a set of columns
+validate_cols <- function(cols, data, col_info, check, path = character(0)) {
+    issues <- list()
+    if ("names" %in% check) {
+        issues <- c(issues, validate_names(cols, data, col_info, path))
+    }
+    if ("types" %in% check) {
+        issues <- c(issues, validate_types_missing(cols, data, col_info, path))
+    }
+    if ("distinct" %in% check) {
+        issues <- c(issues, validate_distinct(cols, data, col_info, path))
+    }
+    issues
 }
 
 
@@ -252,11 +265,7 @@ validate_distinct <- function(cols, data, col_info, path = character(0)) {
                 if (!col_nm %in% names(data)) {
                     next
                 }
-                x <- data[[col_nm]]
-                x_obs <- x[!is.na(x)]
-                if (vctrs::vec_unique_count(x_obs) != vctrs::vec_size(x_obs)) {
-                    issues <- c(issues, list(make_issue("not_distinct", c(path, col_nm))))
-                }
+                issues <- c(issues, check_col_distinct(data[[col_nm]], c(path, col_nm)))
             }
             next
         }
@@ -269,13 +278,7 @@ validate_distinct <- function(cols, data, col_info, path = character(0)) {
         if (!col_nm %in% names(data)) {
             next
         }
-        col_path <- c(path, col_nm)
-
-        x <- data[[col_nm]]
-        x_obs <- x[!is.na(x)]
-        if (vctrs::vec_unique_count(x_obs) != vctrs::vec_size(x_obs)) {
-            issues <- c(issues, list(make_issue("not_distinct", col_path)))
-        }
+        issues <- c(issues, check_col_distinct(data[[col_nm]], c(path, col_nm)))
     }
 
     issues
@@ -329,25 +332,7 @@ validate_named_nest <- function(nest, col_nm, data, check, path) {
             next
         }
 
-        inner_issues <- list()
-        if ("names" %in% check) {
-            inner_issues <- c(
-                inner_issues,
-                validate_names(nest$cols, elem, inner_col_info, col_path)
-            )
-        }
-        if ("types" %in% check) {
-            inner_issues <- c(
-                inner_issues,
-                validate_types_missing(nest$cols, elem, inner_col_info, col_path)
-            )
-        }
-        if ("distinct" %in% check) {
-            inner_issues <- c(
-                inner_issues,
-                validate_distinct(nest$cols, elem, inner_col_info, col_path)
-            )
-        }
+        inner_issues <- validate_cols(nest$cols, elem, inner_col_info, check, col_path)
 
         for (j in seq_along(inner_issues)) {
             inner_issues[[j]]$element <- idx
@@ -604,4 +589,14 @@ check_col_type_and_na <- function(x, tt, col_path) {
         issues <- c(issues, list(make_issue("has_na", col_path)))
     }
     issues
+}
+
+# Distinctness check for a single column vector
+check_col_distinct <- function(x, col_path) {
+    x_obs <- x[!is.na(x)]
+    if (vctrs::vec_unique_count(x_obs) != vctrs::vec_size(x_obs)) {
+        list(make_issue("not_distinct", col_path))
+    } else {
+        list()
+    }
 }
