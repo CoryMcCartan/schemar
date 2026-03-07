@@ -47,7 +47,7 @@ sch_character(desc = NULL, missing = TRUE, required = TRUE, distinct = FALSE)
 
 sch_factor(
   desc = NULL,
-  levels,
+  levels = NULL,
   strict = TRUE,
   missing = TRUE,
   required = TRUE,
@@ -192,7 +192,8 @@ sch_custom(
 
 - levels:
 
-  A character vector of factor levels.
+  A character vector of factor levels, or NULL not enforce specific
+  levels.
 
 - strict:
 

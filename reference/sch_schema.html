@@ -83,7 +83,7 @@ Schemas support nesting relationships.</p>
 <span></span>
 <span><span class="fu">sch_factor</span><span class="op">(</span></span>
 <span>  desc <span class="op">=</span> <span class="cn">NULL</span>,</span>
-<span>  <span class="va">levels</span>,</span>
+<span>  levels <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  strict <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  missing <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  required <span class="op">=</span> <span class="cn">TRUE</span>,</span>
@@ -224,7 +224,7 @@ accounting for nesting structure).</p></dd>
 
 
 <dt id="arg-levels">levels<a class="anchor" aria-label="anchor" href="#arg-levels"></a></dt>
-<dd><p>A character vector of factor levels.</p></dd>
+<dd><p>A character vector of factor levels, or NULL not enforce specific levels.</p></dd>
 
 
 <dt id="arg-strict">strict<a class="anchor" aria-label="anchor" href="#arg-strict"></a></dt>
