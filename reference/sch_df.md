@@ -4,7 +4,7 @@ Bare-bones constructor for a data frame with an attached schema. This
 function should be called by package developers writing their own
 internal constructors. The only checks are for the types of `data` and
 `schema`. The `validate_sch_df()` is a lightweight wrapper around
-[`sch_validate()`](http://corymccartan.com/schemar/reference/sch_validate.md)
+[`sch_validate()`](http://corymccartan.com/schmear/reference/sch_validate.md)
 that also returns the input.
 
 ## Usage
@@ -28,7 +28,7 @@ validate_sch_df(x)
 - groups:
 
   A named list of character vectors of column names, for use with
-  [`sch_multiple()`](http://corymccartan.com/schemar/reference/sch_schema.md).
+  [`sch_multiple()`](http://corymccartan.com/schmear/reference/sch_schema.md).
 
 - class:
 

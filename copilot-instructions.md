@@ -1,4 +1,4 @@
-# Copilot Instructions for schemar
+# Copilot Instructions for schmear
 
 ## Build & Test Commands
 
@@ -34,7 +34,7 @@ directory.
 
 ## Package Architecture
 
-**schemar** is a developer-focused package for creating structured data
+**schmear** is a developer-focused package for creating structured data
 frame subtypes. It has three core layers:
 
 ### 1. Schema Definition (R/schema.R)
@@ -43,16 +43,16 @@ frame subtypes. It has three core layers:
   data frame schema. Takes named column specifications (type
   constructors) and an optional description.
 - **Type Constructors** –
-  [`sch_numeric()`](http://corymccartan.com/schemar/reference/sch_schema.md),
-  [`sch_integer()`](http://corymccartan.com/schemar/reference/sch_schema.md),
-  [`sch_character()`](http://corymccartan.com/schemar/reference/sch_schema.md),
-  [`sch_factor()`](http://corymccartan.com/schemar/reference/sch_schema.md),
-  [`sch_date()`](http://corymccartan.com/schemar/reference/sch_schema.md),
-  [`sch_datetime()`](http://corymccartan.com/schemar/reference/sch_schema.md),
-  [`sch_logical()`](http://corymccartan.com/schemar/reference/sch_schema.md),
-  [`sch_inherits()`](http://corymccartan.com/schemar/reference/sch_schema.md),
-  [`sch_list_of()`](http://corymccartan.com/schemar/reference/sch_schema.md),
-  [`sch_custom()`](http://corymccartan.com/schemar/reference/sch_schema.md).
+  [`sch_numeric()`](http://corymccartan.com/schmear/reference/sch_schema.md),
+  [`sch_integer()`](http://corymccartan.com/schmear/reference/sch_schema.md),
+  [`sch_character()`](http://corymccartan.com/schmear/reference/sch_schema.md),
+  [`sch_factor()`](http://corymccartan.com/schmear/reference/sch_schema.md),
+  [`sch_date()`](http://corymccartan.com/schmear/reference/sch_schema.md),
+  [`sch_datetime()`](http://corymccartan.com/schmear/reference/sch_schema.md),
+  [`sch_logical()`](http://corymccartan.com/schmear/reference/sch_schema.md),
+  [`sch_inherits()`](http://corymccartan.com/schmear/reference/sch_schema.md),
+  [`sch_list_of()`](http://corymccartan.com/schmear/reference/sch_schema.md),
+  [`sch_custom()`](http://corymccartan.com/schmear/reference/sch_schema.md).
 - **Type registry** – `type_fns` list maps type names to
   check/msg/coerce functions. Custom types are added the same way.
 - **Coercion convention** – `type_fns[[type]]$coerce(x, type)` always

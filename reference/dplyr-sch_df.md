@@ -54,6 +54,6 @@ check is run.
 
 Renaming a column that belongs to the schema (either directly or as a
 member of a
-[`sch_multiple()`](http://corymccartan.com/schemar/reference/sch_schema.md)
+[`sch_multiple()`](http://corymccartan.com/schmear/reference/sch_schema.md)
 group) is never valid without also updating the schema definition, so an
 error is raised immediately.

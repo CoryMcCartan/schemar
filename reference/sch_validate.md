@@ -20,7 +20,7 @@ sch_validate(
 - schema:
 
   A schema object created by
-  [`sch_schema()`](http://corymccartan.com/schemar/reference/sch_schema.md).
+  [`sch_schema()`](http://corymccartan.com/schmear/reference/sch_schema.md).
 
 - data:
 

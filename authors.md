@@ -7,13 +7,13 @@
 
 ## Citation
 
-McCartan C (2026). *schemar: Build Structured Data Frame Subtypes*. R
-package version 0.0.0.9000, <http://corymccartan.com/schemar/>.
+McCartan C (2026). *schmear: Build Structured Data Frame Subtypes*. R
+package version 0.0.0.9000, <http://corymccartan.com/schmear/>.
 
     @Manual{,
-      title = {schemar: Build Structured Data Frame Subtypes},
+      title = {schmear: Build Structured Data Frame Subtypes},
       author = {Cory McCartan},
       year = {2026},
       note = {R package version 0.0.0.9000},
-      url = {http://corymccartan.com/schemar/},
+      url = {http://corymccartan.com/schmear/},
     }
