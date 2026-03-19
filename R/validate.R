@@ -368,7 +368,7 @@ validate_relationships <- function(schema, data) {
     issues <- list()
 
     # Uniqueness: all formula columns form a unique key
-    key_data <- data[all_cols]
+    key_data <- data[, all_cols, drop = FALSE]
     grp <- vctrs::vec_group_loc(key_data)
     dup_mask <- lengths(grp$loc) > 1L
     if (any(dup_mask)) {
@@ -423,7 +423,7 @@ validate_rel_cross <- function(node, data, group_cols) {
     if (length(group_cols) == 0L) {
         issues <- c(issues, check_cross_completeness(data, child_cols, label, NULL, 1L, 1L))
     } else {
-        grp_data <- data[group_cols]
+        grp_data <- data[, group_cols, drop = FALSE]
         locs <- vctrs::vec_group_loc(grp_data)
         n_groups <- length(locs$loc)
         n_fail <- 0L
@@ -480,10 +480,10 @@ validate_rel_cross <- function(node, data, group_cols) {
 # Returns list(actual, expected) counts for crossing completeness
 cross_completeness_counts <- function(data, child_cols) {
     all_cols <- unique(unlist(child_cols))
-    actual <- nrow(vctrs::vec_unique(data[all_cols]))
+    actual <- nrow(vctrs::vec_unique(data[, all_cols, drop = FALSE]))
     expected <- prod(vapply(
         child_cols,
-        function(cc) nrow(vctrs::vec_unique(data[cc])),
+        function(cc) nrow(vctrs::vec_unique(data[, cc, drop = FALSE])),
         0L
     ))
     list(actual = actual, expected = expected)
