@@ -34,18 +34,18 @@ Run after all edits with `air format .` from the main directory.
 ### 1. Schema Definition (R/schema.R)
 - **`sch_schema(...)`** – Top-level function that defines a structured data frame schema. Takes named column specifications (type constructors) and an optional description.
 - **Type Constructors** – `sch_numeric()`, `sch_integer()`, `sch_character()`, `sch_factor()`, `sch_date()`, `sch_datetime()`, `sch_logical()`, `sch_inherits()`, `sch_list_of()`, `sch_custom()`.
-- **Nesting** – `sch_nest()` defines nested column groups (stored flat or as list-columns). Supports `.keys` for key-value validation.
-- **Other columns** – `sch_others()` permits additional unlisted columns.
 - **Type registry** – `type_fns` list maps type names to check/msg/coerce functions. Custom types are added the same way.
+- **Coercion convention** – `type_fns[[type]]$coerce(x, type)` always accepts the value and the full type spec. Wrap base coercers like `as.Date()` / `as.POSIXct()` so the second argument is not misinterpreted.
 
 ### 2. Validation (R/validate.R)
-- **`sch_validate(schema, data, check=c("names","types","distinct","nesting"), ...)`** – Core validation function.
+- **`sch_validate(schema, data, check=c("names","types","distinct","relationships"), ...)`** – Core validation function.
 - **Check phases** (independent; each can be toggled):
   - `"names"` → `validate_names()` – missing required columns, extra columns, missing inner columns in nests
   - `"types"` → `validate_types_missing()` – type mismatches, NAs when `missing=FALSE`
   - `"distinct"` → `validate_distinct()` – duplicate values in `distinct=TRUE` columns (NAs excluded per semantics)
-  - `"nesting"` → `validate_nests()` – nested schema structure, inner validation, key consistency
+  - `"relationships"` → `validate_relationships()` – key uniqueness, crossing completeness, nesting completeness
 - **Error handling** – Collects *all* issues before raising a single `sch_validation_error` with attached `$issues` list.
+- **Nested schemas** – Validation recurses into each nested data-frame element and tracks the nested path plus element index in issues.
 
 ### 3. Display & Format (R/schema.R + R/validate.R)
 - **`print.sch_schema()`** – Pretty-prints schema with indentation for nesting levels, type descriptions, and constraint flags.
@@ -65,32 +65,15 @@ type_name = list(
 
 **Important:** Check functions must wrap non-logical results with `isTRUE()` in validation to avoid crashes on NA returns.
 
-### Attributes vs. List Elements
-- Type objects (S3 class `sch_type`) store:
-  - **List elements** – metadata like `type`, `levels`, `bounds`, `closed` (accessed via `$`)
-  - **Attributes** – constraints like `required`, `missing`, `distinct`, `desc` (accessed via `attr()`)
-- **Schema objects** (S3 class `sch_schema`) additionally have:
-  - **List elements** – `cols` (column definitions), `keys` (for nests)
-
-### Nested Validation Semantics
-- **Flat nest** (unnamed `sch_nest()`) – columns are stored side-by-side in the data frame; outer columns collapse to unique rows when checking distinctness.
-- **Named nest** – columns stored as a list-column of data frames; each element is validated independently.
-- **Keys** (`.keys = c("col1", "col2")`) – The unique *combinations* of these columns must be identical across all groups defined by outer columns (flat nests) or across all list elements (named nests).
-- **Group-by logic** – Inner `distinct=TRUE` columns are checked per outer group (when outer distinct/group columns exist).
-
 ### NA and NULL Semantics
 - **Regular columns** – NAs are explicitly allowed/forbidden per `missing` attribute.
 - **List columns** – `NULL` list elements are treated as "missing" (analogous to NA).
 - **Distinct checking** – NAs/NULLs are **excluded** from uniqueness checks when `missing=TRUE` (no "duplicate NA" error).
 - **Custom checks** – Must handle NAs gracefully; if a check returns `NA`, it's treated as a type failure, not a crash.
 
-### Column Name Requirements
-- All columns must be named except `sch_others()` (no name) and unnamed `sch_nest()` (flat nesting).
-- Nested nests (nests inside nests) are only allowed as unnamed nests inside a parent nest.
-
 ## Important Implementation Notes
 
-1. **sch_validate() modularization** – Each check phase can run independently (useful for performance; missing-column detection now happens in `validate_names()`, not `validate_types_missing()`).
-2. **Recursive nesting** – `validate_names()`, `validate_types_missing()`, `validate_distinct()`, and `validate_nests()` all accept `path` (column path for error reporting) and call each other recursively for nested columns.
-3. **vctrs integration** – Uses `vctrs::vec_unique_count()`, `vec_group_loc()`, `vec_slice()` for vectorized operations; handles NA semantics correctly.
-4. **Error collection** – All validators return a list of issues (possibly empty); issues are collected, then printed as a bullet list with `cli::cli_abort()`.
+1. **sch_validate() modularization** – Each check phase can run independently.
+2. **vctrs integration** – Uses `vctrs::vec_unique_count()`, `vec_group_loc()`, `vec_slice()` for vectorized operations; handles NA semantics correctly.
+3. **Error collection** – All validators return a list of issues (possibly empty); issues are collected, then printed as a bullet list with `cli::cli_abort()`.
+4. **Tests** – Prefer `testthat::test_that()` with `expect_*` assertions, matching the existing `test-schema.R` and `test-validate.R` style.

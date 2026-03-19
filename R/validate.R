@@ -329,7 +329,10 @@ validate_named_nest <- function(nest, col_nm, data, check, path) {
             next
         }
 
-        inner_issues <- validate_cols(nest$cols, elem, inner_col_info, check, col_path)
+        inner_issues <- c(
+            validate_cols(nest$cols, elem, inner_col_info, check, col_path),
+            validate_nests(nest$cols, elem, inner_col_info, check, col_path)
+        )
 
         for (j in seq_along(inner_issues)) {
             inner_issues[[j]]$element <- idx
@@ -364,21 +367,25 @@ validate_relationships <- function(schema, data) {
 
     issues <- list()
 
-    # 1. Uniqueness: all formula columns form a primary key
+    # Uniqueness: all formula columns form a unique key
     key_data <- data[all_cols]
-    n_unique <- nrow(vctrs::vec_unique(key_data))
-    if (n_unique != nrow(data)) {
-        n_dup <- nrow(data) - n_unique
-        new_issue <- make_issue(
-            "duplicate_key",
-            character(0),
-            columns = all_cols,
-            n_duplicates = n_dup
+    grp <- vctrs::vec_group_loc(key_data)
+    dup_mask <- lengths(grp$loc) > 1L
+    if (any(dup_mask)) {
+        n_dup <- nrow(data) - nrow(vctrs::vec_unique(key_data))
+        first_key <- vctrs::vec_slice(grp$key, which(dup_mask)[1L])
+        issues <- c(
+            issues,
+            list(make_issue(
+                "duplicate_key",
+                character(0),
+                columns = all_cols,
+                n_duplicates = n_dup,
+                first_key = first_key
+            ))
         )
-        issues <- c(issues, list(new_issue))
     }
 
-    # 2. Recursively check crossing and nesting
     issues <- c(issues, validate_rel_node(tree, data, group_cols = character(0)))
 
     issues
@@ -399,64 +406,109 @@ validate_rel_node <- function(node, data, group_cols) {
 
 
 # Check crossing completeness: within each group defined by group_cols,
-# the unique combos of all children = product of unique combos per child
+# the unique combos of all children = product of unique combos per child.
+# When group_cols is non-empty, all failing groups are summarized into a
+# single issue showing the count and the first offending group key.
 validate_rel_cross <- function(node, data, group_cols) {
     issues <- list()
     children <- node$children
 
     # Get column names per child
     child_cols <- lapply(children, relationship_columns)
+    label <- paste(
+        vapply(child_cols, function(cc) paste(cc, collapse = " + "), ""),
+        collapse = " \u00d7 "
+    )
 
-    if (length(group_cols) == 0) {
-        issues <- c(issues, check_cross_completeness(data, child_cols))
+    if (length(group_cols) == 0L) {
+        issues <- c(issues, check_cross_completeness(data, child_cols, label, NULL, 1L, 1L))
     } else {
         grp_data <- data[group_cols]
         locs <- vctrs::vec_group_loc(grp_data)
+        n_groups <- length(locs$loc)
+        n_fail <- 0L
+        first_key <- NULL
+        first_actual <- NULL
+        first_expected <- NULL
 
-        for (loc in locs$loc) {
-            sub <- vctrs::vec_slice(data, loc)
-            issues <- c(issues, check_cross_completeness(sub, child_cols))
+        for (i in seq_len(n_groups)) {
+            sub <- vctrs::vec_slice(data, locs$loc[[i]])
+            result <- cross_completeness_counts(sub, child_cols)
+            if (result$actual < result$expected) {
+                n_fail <- n_fail + 1L
+                if (is.null(first_key)) {
+                    first_key <- vctrs::vec_slice(grp_data, locs$loc[[i]][1L])
+                    first_actual <- result$actual
+                    first_expected <- result$expected
+                }
+            }
+        }
+
+        if (n_fail > 0L) {
+            issues <- c(
+                issues,
+                list(make_issue(
+                    "incomplete_crossing",
+                    character(0),
+                    label = label,
+                    actual = first_actual,
+                    expected = first_expected,
+                    group_cols = group_cols,
+                    first_key = first_key,
+                    n_fail = n_fail,
+                    n_groups = n_groups
+                ))
+            )
         }
     }
 
-    # Recurse: each child gets siblings' columns as context
+    # Recurse into non-leaf children only; cross completeness handles var/compound
     for (k in seq_along(children)) {
+        child <- children[[k]]
+        if (child$type %in% c("var", "compound")) {
+            next
+        }
         sibling_cols <- unique(unlist(child_cols[-k]))
         new_group <- c(group_cols, sibling_cols)
-        issues <- c(issues, validate_rel_node(children[[k]], data, new_group))
+        issues <- c(issues, validate_rel_node(child, data, new_group))
     }
 
     issues
 }
 
 
-# Check that unique(all child cols) == product of unique(each child's cols)
-check_cross_completeness <- function(data, child_cols) {
-    if (length(child_cols) < 2) {
-        return(list())
-    }
-
+# Returns list(actual, expected) counts for crossing completeness
+cross_completeness_counts <- function(data, child_cols) {
     all_cols <- unique(unlist(child_cols))
     actual <- nrow(vctrs::vec_unique(data[all_cols]))
     expected <- prod(vapply(
         child_cols,
-        function(cc) {
-            nrow(vctrs::vec_unique(data[cc]))
-        },
+        function(cc) nrow(vctrs::vec_unique(data[cc])),
         0L
     ))
+    list(actual = actual, expected = expected)
+}
 
-    if (actual < expected) {
-        label <- paste(
-            vapply(child_cols, function(cc) paste(cc, collapse = " + "), ""),
-            collapse = " \u00d7 "
-        )
+
+# Check that unique(all child cols) == product of unique(each child's cols)
+check_cross_completeness <- function(data, child_cols, label, first_key, n_fail, n_groups) {
+    if (length(child_cols) < 2) {
+        return(list())
+    }
+
+    result <- cross_completeness_counts(data, child_cols)
+
+    if (result$actual < result$expected) {
         return(list(make_issue(
             "incomplete_crossing",
             character(0),
             label = label,
-            actual = actual,
-            expected = expected
+            actual = result$actual,
+            expected = result$expected,
+            group_cols = character(0),
+            first_key = first_key,
+            n_fail = n_fail,
+            n_groups = n_groups
         )))
     }
 
@@ -464,16 +516,19 @@ check_cross_completeness <- function(data, child_cols) {
 }
 
 
-# Check nesting: inner scoped within outer groups; (outer, inner) unique
+# Check nesting: inner is scoped within outer groups
 validate_rel_nest <- function(node, data, group_cols) {
     issues <- list()
     outer_cols <- relationship_columns(node$outer)
 
-    # Inner is scoped within outer: just add outer to group_cols and recurse
     new_group <- c(group_cols, outer_cols)
     issues <- c(issues, validate_rel_node(node$inner, data, new_group))
-    # Also recurse into outer with original group_cols
-    issues <- c(issues, validate_rel_node(node$outer, data, group_cols))
+
+    # Only recurse into outer if it has sub-structure (cross or nest);
+    # var/compound outers are pure grouping context, not independently validated
+    if (node$outer$type %in% c("cross", "nest")) {
+        issues <- c(issues, validate_rel_node(node$outer, data, group_cols))
+    }
 
     issues
 }
@@ -546,13 +601,30 @@ print_validation_issue <- function(issue) {
         ),
         duplicate_key = {
             cols_str <- paste(issue$columns, collapse = ", ")
+            key_str <- format_key(issue$first_key)
             cli::format_inline(
-                "Columns ({.field {cols_str}}) should uniquely identify each row. Found {issue$n_duplicates} duplicate combination{?s}."
+                "Columns ({.field {cols_str}}) should be unique per row. Found {issue$n_duplicates} duplicate combination{?s}. First duplicate: ({key_str})."
             )
         },
-        incomplete_crossing = cli::format_inline(
-            "Incomplete crossing of {issue$label}: found {issue$actual} of {issue$expected} expected combinations."
-        ),
+        incomplete_crossing = {
+            if (length(issue$group_cols) == 0L) {
+                cli::format_inline(
+                    "Incomplete crossing of {issue$label}: found {issue$actual} of {issue$expected} expected combinations."
+                )
+            } else {
+                grp_label <- paste(issue$group_cols, collapse = " + ")
+                key_str <- format_key(issue$first_key)
+                if (issue$n_fail == 1L) {
+                    cli::format_inline(
+                        "Incomplete crossing of {issue$label} in ({.field {grp_label}}) group ({key_str}): found {issue$actual} of {issue$expected} expected combinations."
+                    )
+                } else {
+                    cli::format_inline(
+                        "Incomplete crossing of {issue$label} in {issue$n_fail} of {issue$n_groups} ({.field {grp_label}}) groups. First at ({key_str}): found {issue$actual} of {issue$expected} expected combinations."
+                    )
+                }
+            }
+        },
         paste0("Unknown issue: ", issue$type)
     )
 }
@@ -562,6 +634,20 @@ print_validation_issue <- function(issue) {
 
 make_issue <- function(type, path, ...) {
     c(list(type = type, path = path), list(...))
+}
+
+# Format a single-row data frame key as "col1=val1, col2=val2, ..."
+format_key <- function(key) {
+    if (is.null(key) || ncol(key) == 0L) {
+        return("")
+    }
+    parts <- mapply(
+        function(nm, val) paste0(nm, "=", as.character(val[[1L]])),
+        names(key),
+        as.list(key),
+        SIMPLIFY = TRUE
+    )
+    paste(parts, collapse = ", ")
 }
 
 # Build "a <type description>" / "an <type description>" for a type object

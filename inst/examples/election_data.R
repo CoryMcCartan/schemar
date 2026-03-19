@@ -84,9 +84,10 @@ t1 <- as.POSIXct("2024-11-05 23:00:00", tz = "America/New_York")
 t2 <- as.POSIXct("2024-11-05 23:30:00", tz = "America/New_York")
 
 make_race_geo <- function(state, geo, base_votes) {
+    n_t = 1L + rpois(1, 0.5)
     expand.grid(
         candidate = c("Harris, Kamala D.", "Trump, Donald J."),
-        time = c(t1, t2),
+        time = rep(c(t1, t2), n_t) + rpois(2 * n_t, 1000),
         method = c("eday", "all"),
         stringsAsFactors = FALSE
     ) |>
@@ -118,7 +119,8 @@ cat("\nValidating compliant data...\n")
 sch_validate(schema_elec, df)
 cat("OK\n")
 
-d_nj = enightmodels::nj
+d_nj = new_sch_df(enightmodels::nj, schema_elec, class = "elec_data")
+validate_sch_df(d_nj)
 sch_validate(schema_elec, d_nj)
 
 

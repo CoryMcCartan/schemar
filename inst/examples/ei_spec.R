@@ -74,7 +74,8 @@ class(df) <- c("ei_spec", "sch_df", "tbl_df", "tbl", "data.frame")
 
 attr(df, "sch_groups") <- list(
     predictors = c("vap_white", "vap_black", "vap_other"),
-    outcomes = c("pres_dem", "pres_rep", "pres_other")
+    outcomes = c("pres_dem", "pres_rep", "pres_other"),
+    covariates = "income_med"
 )
 
 cat("\nCompliant data (first 5 rows):\n")

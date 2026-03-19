@@ -585,6 +585,85 @@ test_that("named nest: zero-row elements pass", {
     expect_no_error(sch_validate(schema, df))
 })
 
+# Multi-level (deep) nesting validation ----------------------------------
+
+test_that("two-level nest: valid data passes", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        level1 = sch_nest(
+            name = sch_character(),
+            level2 = sch_nest(value = sch_numeric())
+        )
+    )
+    df <- data.frame(id = 1L)
+    df$level1 <- list(
+        data.frame(name = "x") |>
+            (\(d) {
+                d$level2 <- list(data.frame(value = 1.5))
+                d
+            })()
+    )
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("two-level nest: type violation in inner nest raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        level1 = sch_nest(
+            name = sch_character(),
+            level2 = sch_nest(value = sch_numeric())
+        )
+    )
+    df <- data.frame(id = 1L)
+    df$level1 <- list(
+        data.frame(name = "x") |>
+            (\(d) {
+                d$level2 <- list(data.frame(value = "not_numeric"))
+                d
+            })()
+    )
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
+test_that("two-level nest: missing column in inner nest raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        level1 = sch_nest(
+            name = sch_character(),
+            level2 = sch_nest(value = sch_numeric())
+        )
+    )
+    df <- data.frame(id = 1L)
+    # level2 is missing the `value` column
+    df$level1 <- list(
+        data.frame(name = "x") |>
+            (\(d) {
+                d$level2 <- list(data.frame(other = 1.5))
+                d
+            })()
+    )
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
+test_that("two-level nest: distinct violation in inner nest raises error", {
+    schema <- sch_schema(
+        id = sch_integer(),
+        level1 = sch_nest(
+            name = sch_character(),
+            level2 = sch_nest(value = sch_numeric(distinct = TRUE))
+        )
+    )
+    df <- data.frame(id = 1L)
+    df$level1 <- list(
+        data.frame(name = "x") |>
+            (\(d) {
+                d$level2 <- list(data.frame(value = c(1.5, 1.5)))
+                d
+            })()
+    )
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
 # sch_multiple() validation ----------------------------------------------
 
 test_that("sch_multiple: valid data with sch_groups passes", {
@@ -974,6 +1053,262 @@ test_that("relationships: complex nested/crossed formula validates", {
     ]
     df$value <- seq_len(nrow(df))
     expect_no_error(sch_validate(schema, df))
+})
+
+# .relationships validation: crossing soundness --------------------------
+#
+# The crossing check computes: actual = nrow(unique(all cols)),
+# expected = prod(nrow(unique(child_cols)) for each child).
+# These are equal if and only if the data IS the full Cartesian product,
+# by a pigeonhole argument: each child-key can appear with at most
+# prod(other children unique counts) combinations. So if actual ==
+# expected, every combination must be present.
+
+test_that("relationships: 3-way cross with right marginals but latin-square combos raises error", {
+    # a={1,2}, b={x,y}, c={p,q}: unique per column = 2 each, expected 2*2*2=8
+    # Latin-square arrangement has only 4 unique (a,b,c) triples -- caught
+    schema <- sch_schema(
+        .relationships = ~ a * b * c,
+        a = sch_integer(),
+        b = sch_character(),
+        c = sch_character(),
+        value = sch_numeric()
+    )
+    df <- data.frame(
+        a = c(1L, 1L, 2L, 2L),
+        b = c("x", "y", "x", "y"),
+        c = c("p", "q", "q", "p"), # Latin square: each row unique, but 4 != 8
+        value = 1:4
+    )
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
+test_that("relationships: compound child aliased to single partner raises error", {
+    # (a+b) has 3 unique pairs; c has 3 unique values: expected 9
+    # But each (a,b) pair only ever appears with ONE c value -> only 3 unique tuples
+    schema <- sch_schema(
+        .relationships = ~ (a + b) * c,
+        a = sch_integer(),
+        b = sch_character(),
+        c = sch_character(),
+        value = sch_numeric()
+    )
+    df <- data.frame(
+        a = c(1L, 2L, 3L),
+        b = c("x", "y", "z"),
+        c = c("p", "q", "r"),
+        value = 1:3
+    )
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
+test_that("relationships: crossing complete within each group passes", {
+    schema <- sch_schema(
+        .relationships = ~ g / ((a + b) * c),
+        g = sch_integer(),
+        a = sch_integer(),
+        b = sch_character(),
+        c = sch_character(),
+        value = sch_numeric()
+    )
+    # Within each g: (a,b) pairs {(1,"x"),(2,"y")} fully crossed with c {p,q}
+    df <- data.frame(
+        g = c(1L, 1L, 1L, 1L, 2L, 2L, 2L, 2L),
+        a = c(1L, 1L, 2L, 2L, 1L, 1L, 2L, 2L),
+        b = c("x", "x", "y", "y", "x", "x", "y", "y"),
+        c = c("p", "q", "p", "q", "p", "q", "p", "q"),
+        value = 1:8
+    )
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("relationships: crossing incomplete within a group raises error", {
+    # Same schema as above; within g=1: (a,b) pairs aliased to c values (not fully crossed)
+    schema <- sch_schema(
+        .relationships = ~ g / ((a + b) * c),
+        g = sch_integer(),
+        a = sch_integer(),
+        b = sch_character(),
+        c = sch_character(),
+        value = sch_numeric()
+    )
+    df <- data.frame(
+        g = c(1L, 1L, 2L, 2L),
+        a = c(1L, 2L, 1L, 2L),
+        b = c("x", "y", "x", "y"),
+        c = c("p", "q", "p", "q"), # each (a,b) paired with only one c per group
+        value = 1:4
+    )
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
+# .relationships: new semantics (bottom-up within-group uniqueness) ------
+#
+# Intended semantics:
+#   - `+` (compound): the tuple of columns must be unique within the current
+#     group context (globally at the top level; per-group when nested inside /).
+#   - `/` (nesting): the inner term is evaluated within each group defined by
+#     the outer term.  The inner term itself must be unique within each group.
+#   - `*` (crossing): complete Cartesian product within current group context
+#     (unchanged).
+#
+# Key implication: "nesting" allows the same inner value to appear in multiple
+# outer groups — that is NOT a violation.  A violation is a duplicate inner
+# value *within the same* outer group.
+#
+# Note: once implemented, the following existing tests will need updating:
+#   - "relationships: duplicate primary key raises error" (line ~849): a
+#     duplicate row with ~ a * b currently raises "duplicate" (global key
+#     check).  Under new semantics there is no global key check; the error
+#     becomes "incomplete_crossing" instead.  The regex match on "duplicate"
+#     should be relaxed or the description updated.
+#   - test-schema.R "sch_schema() warns when .relationships root is + (compound
+#     at top level)": the warning should be removed now that top-level + is
+#     meaningful.
+
+# compound (+) at top level ----
+
+test_that("relationships: ~ a + b enforces (a,b) combination uniqueness", {
+    schema <- sch_schema(
+        .relationships = ~ a + b,
+        a = sch_integer(),
+        b = sch_character(),
+        value = sch_numeric()
+    )
+    # (1,"x"), (1,"y"), (2,"x") — all (a,b) pairs distinct
+    df <- data.frame(
+        a = c(1L, 1L, 2L),
+        b = c("x", "y", "x"),
+        value = c(1.0, 2.0, 3.0)
+    )
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("relationships: ~ a + b catches duplicate (a,b) pair", {
+    schema <- sch_schema(
+        .relationships = ~ a + b,
+        a = sch_integer(),
+        b = sch_character(),
+        value = sch_numeric()
+    )
+    # (1,"x") appears twice
+    df <- data.frame(
+        a = c(1L, 1L, 2L),
+        b = c("x", "x", "y"),
+        value = c(1.0, 2.0, 3.0)
+    )
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
+# nesting (/) bottom-level: simple case ----
+
+test_that("relationships: ~ a / b allows same b value across different a groups", {
+    # This is the core nesting semantic: b="x" in both a=1 and a=2 is fine —
+    # each a group has unique b values internally.
+    schema <- sch_schema(
+        .relationships = ~ a / b,
+        a = sch_integer(),
+        b = sch_character(),
+        value = sch_numeric()
+    )
+    df <- data.frame(
+        a = c(1L, 1L, 2L, 2L),
+        b = c("x", "y", "x", "z"),
+        value = c(1.0, 2.0, 3.0, 4.0)
+    )
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("relationships: ~ a / b catches duplicate b within an a group", {
+    schema <- sch_schema(
+        .relationships = ~ a / b,
+        a = sch_integer(),
+        b = sch_character(),
+        value = sch_numeric()
+    )
+    # b="x" appears twice within a=1
+    df <- data.frame(
+        a = c(1L, 1L, 2L),
+        b = c("x", "x", "z"),
+        value = c(1.0, 2.0, 3.0)
+    )
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
+# nesting (/) bottom-level: compound inner ----
+
+test_that("relationships: ~ foo / (bar + baz) allows same (bar,baz) across different foo groups", {
+    schema <- sch_schema(
+        .relationships = ~ foo / (bar + baz),
+        foo = sch_integer(),
+        bar = sch_character(),
+        baz = sch_character(),
+        value = sch_numeric()
+    )
+    # (bar="a", baz="x") appears in both foo=1 and foo=2 — allowed
+    df <- data.frame(
+        foo = c(1L, 1L, 2L, 2L),
+        bar = c("a", "a", "a", "b"),
+        baz = c("x", "y", "x", "x"),
+        value = c(1.0, 2.0, 3.0, 4.0)
+    )
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("relationships: ~ foo / (bar + baz) catches duplicate (bar,baz) within a foo group", {
+    schema <- sch_schema(
+        .relationships = ~ foo / (bar + baz),
+        foo = sch_integer(),
+        bar = sch_character(),
+        baz = sch_character(),
+        value = sch_numeric()
+    )
+    # (bar="a", baz="x") appears twice within foo=1
+    df <- data.frame(
+        foo = c(1L, 1L, 2L),
+        bar = c("a", "a", "b"),
+        baz = c("x", "x", "y"),
+        value = c(1.0, 2.0, 3.0)
+    )
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
+})
+
+# nesting (/) bottom-level: compound outer ----
+
+test_that("relationships: ~ (foo + bar) / baz allows same baz across different (foo,bar) groups", {
+    schema <- sch_schema(
+        .relationships = ~ (foo + bar) / baz,
+        foo = sch_integer(),
+        bar = sch_character(),
+        baz = sch_character(),
+        value = sch_numeric()
+    )
+    # baz="p" appears in (foo=1,bar="x") and (foo=1,bar="y") — allowed
+    df <- data.frame(
+        foo = c(1L, 1L, 2L),
+        bar = c("x", "y", "x"),
+        baz = c("p", "p", "q"),
+        value = c(1.0, 2.0, 3.0)
+    )
+    expect_no_error(sch_validate(schema, df))
+})
+
+test_that("relationships: ~ (foo + bar) / baz catches duplicate baz within a (foo,bar) group", {
+    schema <- sch_schema(
+        .relationships = ~ (foo + bar) / baz,
+        foo = sch_integer(),
+        bar = sch_character(),
+        baz = sch_character(),
+        value = sch_numeric()
+    )
+    # baz="p" appears twice within (foo=1, bar="x")
+    df <- data.frame(
+        foo = c(1L, 1L, 2L),
+        bar = c("x", "x", "y"),
+        baz = c("p", "p", "q"),
+        value = c(1.0, 2.0, 3.0)
+    )
+    expect_error(sch_validate(schema, df), class = "sch_validation_error")
 })
 
 # .relationships validation: edge cases ----------------------------------
