@@ -540,26 +540,41 @@ validate_rel_nest <- function(node, data, group_cols) {
     issues <- list()
     outer_cols <- relationship_columns(node$outer)
 
-    # Apply parent-scope reference for the inner cross check when the outer is
-    # itself a nest whose inner cross is "pure" (all children are non-nest
-    # nodes). In that case the intermediate groups are symmetric — they should
-    # all carry the same inner structure — so we scope data to the
-    # first-level outer group before checking.  If any child of the
-    # intermediate cross is itself a nest, the groups are heterogeneous and
-    # their inner structures may legitimately differ, so we fall back to the
-    # standard per-group check.
-    use_parent_scope <-
-        node$outer$type == "nest" &&
-        node$outer$inner$type == "cross" &&
-        !any(vapply(
-            node$outer$inner$children,
-            function(ch) ch$type == "nest",
-            logical(1L)
-        ))
-
-    if (use_parent_scope) {
+    # For three-level (or deeper) formulas where outer is itself a nest and
+    # inner is a cross, sibling groups at the intermediate level must carry
+    # consistent inner structure. The scope for this consistency check
+    # depends on the structure of the intermediate cross:
+    #
+    #   Pure cross (no nested children): groups are fully symmetric, so scope
+    #   to the grandparent (outer$outer) level. All siblings within a
+    #   grandparent group must share the same inner grid.
+    #
+    #   Mixed cross (some nested children): the non-nested children define a
+    #   "symmetric" dimension and the nested children define a heterogeneous
+    #   one. Extend the grandparent scope by the non-nested children's columns
+    #   so that only groups sharing both the grandparent identity AND the
+    #   symmetric dimension are compared. E.g. for
+    #   `(race) / (geo * (party / candidate)) / (time * method)`, scope is
+    #   per (race, geo): within a geo, all (party, candidate) groups must have
+    #   the same time × method grid, but different geos may have different grids.
+    if (node$outer$type == "nest" && node$inner$type == "cross") {
         first_outer_cols <- relationship_columns(node$outer$outer)
-        scope_cols <- c(group_cols, first_outer_cols)
+        scope_extension <- character(0L)
+
+        if (node$outer$inner$type == "cross") {
+            outer_inner_children <- node$outer$inner$children
+            is_nest <- vapply(outer_inner_children, function(ch) ch$type == "nest", logical(1L))
+            if (any(is_nest)) {
+                # Mixed cross: add the symmetric (non-nested) children's cols
+                scope_extension <- unlist(lapply(
+                    outer_inner_children[!is_nest],
+                    relationship_columns
+                ))
+            }
+            # Pure cross: scope_extension stays character(0L), use grandparent scope only
+        }
+
+        scope_cols <- unique(c(group_cols, first_outer_cols, scope_extension))
 
         if (length(scope_cols) == 0L) {
             issues <- c(
