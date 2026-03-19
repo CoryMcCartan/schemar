@@ -398,7 +398,7 @@ validate_rel_node <- function(node, data, group_cols) {
         node$type,
         var = list(),
         compound = list(),
-        cross = validate_rel_cross(node, data, group_cols, use_global_ref = FALSE),
+        cross = validate_rel_cross(node, data, group_cols),
         nest = validate_rel_nest(node, data, group_cols),
         rlang::abort(paste0("Unknown relationship node type: ", node$type))
     )
@@ -409,7 +409,7 @@ validate_rel_node <- function(node, data, group_cols) {
 # the unique combos of all children = product of unique combos per child.
 # When group_cols is non-empty, all failing groups are summarized into a
 # single issue showing the count and the first offending group key.
-validate_rel_cross <- function(node, data, group_cols, use_global_ref = FALSE) {
+validate_rel_cross <- function(node, data, group_cols) {
     issues <- list()
     children <- node$children
 
@@ -431,34 +431,15 @@ validate_rel_cross <- function(node, data, group_cols, use_global_ref = FALSE) {
         first_actual <- NULL
         first_expected <- NULL
 
-        # When use_global_ref = TRUE (called from a parent-scoped context),
-        # compute the reference from the full (already-scoped) data so that
-        # values present in sibling groups are not overlooked in any one group.
-        # When FALSE (default), compute the reference per-subgroup so that
-        # groups with legitimately different inner structures (e.g. different
-        # timestamps per reporting unit) are not incorrectly flagged.
-        all_child_cols <- unique(unlist(child_cols))
-        if (use_global_ref) {
-            ref <- cross_completeness_counts(data, child_cols)
-            ref_expected_global <- ref$expected
-        }
-
         for (i in seq_len(n_groups)) {
             sub <- vctrs::vec_slice(data, locs$loc[[i]])
-            if (use_global_ref) {
-                actual <- nrow(vctrs::vec_unique(sub[, all_child_cols, drop = FALSE]))
-                ref_expected <- ref_expected_global
-            } else {
-                result <- cross_completeness_counts(sub, child_cols)
-                actual <- result$actual
-                ref_expected <- result$expected
-            }
-            if (actual < ref_expected) {
+            result <- cross_completeness_counts(sub, child_cols)
+            if (result$actual < result$expected) {
                 n_fail <- n_fail + 1L
                 if (is.null(first_key)) {
                     first_key <- vctrs::vec_slice(grp_data, locs$loc[[i]][1L])
-                    first_actual <- actual
-                    first_expected <- ref_expected
+                    first_actual <- result$actual
+                    first_expected <- result$expected
                 }
             }
         }
@@ -557,40 +538,95 @@ validate_rel_nest <- function(node, data, group_cols) {
     #   `(race) / (geo * (party / candidate)) / (time * method)`, scope is
     #   per (race, geo): within a geo, all (party, candidate) groups must have
     #   the same time × method grid, but different geos may have different grids.
+    #
+    # All failures across every scope group are aggregated into a single issue
+    # so the user sees one summary rather than one error per scope group.
     if (node$outer$type == "nest" && node$inner$type == "cross") {
         first_outer_cols <- relationship_columns(node$outer$outer)
         scope_extension <- character(0L)
 
         if (node$outer$inner$type == "cross") {
             outer_inner_children <- node$outer$inner$children
-            is_nest <- vapply(outer_inner_children, function(ch) ch$type == "nest", logical(1L))
-            if (any(is_nest)) {
-                # Mixed cross: add the symmetric (non-nested) children's cols
+            is_nest_ch <- vapply(outer_inner_children, function(ch) ch$type == "nest", logical(1L))
+            if (any(is_nest_ch)) {
                 scope_extension <- unlist(lapply(
-                    outer_inner_children[!is_nest],
+                    outer_inner_children[!is_nest_ch],
                     relationship_columns
                 ))
             }
-            # Pure cross: scope_extension stays character(0L), use grandparent scope only
         }
 
         scope_cols <- unique(c(group_cols, first_outer_cols, scope_extension))
 
+        # Column info for the inner cross node (for reference computation & label)
+        child_cols <- lapply(node$inner$children, relationship_columns)
+        all_child_cols <- unique(unlist(child_cols))
+        label <- paste(
+            vapply(child_cols, function(cc) paste(cc, collapse = " + "), ""),
+            collapse = " \u00d7 "
+        )
+
+        # Aggregate failures across all scope groups into a single issue
+        n_fail <- 0L
+        n_groups <- 0L
+        first_key <- NULL
+        first_actual <- NULL
+        first_expected <- NULL
+
+        run_scope <- function(sub_scope) {
+            ref_expected <- cross_completeness_counts(sub_scope, child_cols)$expected
+            sub_grp <- sub_scope[, outer_cols, drop = FALSE]
+            sub_locs <- vctrs::vec_group_loc(sub_grp)
+            n_groups <<- n_groups + length(sub_locs$loc)
+            for (i in seq_len(length(sub_locs$loc))) {
+                sub <- vctrs::vec_slice(sub_scope, sub_locs$loc[[i]])
+                actual <- nrow(vctrs::vec_unique(sub[, all_child_cols, drop = FALSE]))
+                if (actual < ref_expected) {
+                    n_fail <<- n_fail + 1L
+                    if (is.null(first_key)) {
+                        first_key <<- vctrs::vec_slice(sub_grp, sub_locs$loc[[i]][1L])
+                        first_actual <<- actual
+                        first_expected <<- ref_expected
+                    }
+                }
+            }
+        }
+
         if (length(scope_cols) == 0L) {
-            issues <- c(
-                issues,
-                validate_rel_cross(node$inner, data, outer_cols, use_global_ref = TRUE)
-            )
+            run_scope(data)
         } else {
             scope_data <- data[, scope_cols, drop = FALSE]
-            locs <- vctrs::vec_group_loc(scope_data)
-            for (i in seq_len(length(locs$loc))) {
-                sub <- vctrs::vec_slice(data, locs$loc[[i]])
-                issues <- c(
-                    issues,
-                    validate_rel_cross(node$inner, sub, outer_cols, use_global_ref = TRUE)
-                )
+            scope_locs <- vctrs::vec_group_loc(scope_data)
+            for (si in seq_len(length(scope_locs$loc))) {
+                run_scope(vctrs::vec_slice(data, scope_locs$loc[[si]]))
             }
+        }
+
+        if (n_fail > 0L) {
+            issues <- c(
+                issues,
+                list(make_issue(
+                    "incomplete_crossing",
+                    character(0),
+                    label = label,
+                    actual = first_actual,
+                    expected = first_expected,
+                    group_cols = outer_cols,
+                    first_key = first_key,
+                    n_fail = n_fail,
+                    n_groups = n_groups
+                ))
+            )
+        }
+
+        # Recurse into non-leaf children of the inner cross
+        for (k in seq_along(node$inner$children)) {
+            child <- node$inner$children[[k]]
+            if (child$type %in% c("var", "compound")) {
+                next
+            }
+            sibling_cols <- unique(unlist(child_cols[-k]))
+            issues <- c(issues, validate_rel_node(child, data, c(group_cols, sibling_cols)))
         }
     } else {
         issues <- c(issues, validate_rel_node(node$inner, data, outer_cols))
