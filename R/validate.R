@@ -398,7 +398,7 @@ validate_rel_node <- function(node, data, group_cols) {
         node$type,
         var = list(),
         compound = list(),
-        cross = validate_rel_cross(node, data, group_cols),
+        cross = validate_rel_cross(node, data, group_cols, use_global_ref = FALSE),
         nest = validate_rel_nest(node, data, group_cols),
         rlang::abort(paste0("Unknown relationship node type: ", node$type))
     )
@@ -409,7 +409,7 @@ validate_rel_node <- function(node, data, group_cols) {
 # the unique combos of all children = product of unique combos per child.
 # When group_cols is non-empty, all failing groups are summarized into a
 # single issue showing the count and the first offending group key.
-validate_rel_cross <- function(node, data, group_cols) {
+validate_rel_cross <- function(node, data, group_cols, use_global_ref = FALSE) {
     issues <- list()
     children <- node$children
 
@@ -431,15 +431,34 @@ validate_rel_cross <- function(node, data, group_cols) {
         first_actual <- NULL
         first_expected <- NULL
 
+        # When use_global_ref = TRUE (called from a parent-scoped context),
+        # compute the reference from the full (already-scoped) data so that
+        # values present in sibling groups are not overlooked in any one group.
+        # When FALSE (default), compute the reference per-subgroup so that
+        # groups with legitimately different inner structures (e.g. different
+        # timestamps per reporting unit) are not incorrectly flagged.
+        all_child_cols <- unique(unlist(child_cols))
+        if (use_global_ref) {
+            ref <- cross_completeness_counts(data, child_cols)
+            ref_expected_global <- ref$expected
+        }
+
         for (i in seq_len(n_groups)) {
             sub <- vctrs::vec_slice(data, locs$loc[[i]])
-            result <- cross_completeness_counts(sub, child_cols)
-            if (result$actual < result$expected) {
+            if (use_global_ref) {
+                actual <- nrow(vctrs::vec_unique(sub[, all_child_cols, drop = FALSE]))
+                ref_expected <- ref_expected_global
+            } else {
+                result <- cross_completeness_counts(sub, child_cols)
+                actual <- result$actual
+                ref_expected <- result$expected
+            }
+            if (actual < ref_expected) {
                 n_fail <- n_fail + 1L
                 if (is.null(first_key)) {
                     first_key <- vctrs::vec_slice(grp_data, locs$loc[[i]][1L])
-                    first_actual <- result$actual
-                    first_expected <- result$expected
+                    first_actual <- actual
+                    first_expected <- ref_expected
                 }
             }
         }
@@ -521,11 +540,49 @@ validate_rel_nest <- function(node, data, group_cols) {
     issues <- list()
     outer_cols <- relationship_columns(node$outer)
 
-    new_group <- c(group_cols, outer_cols)
-    issues <- c(issues, validate_rel_node(node$inner, data, new_group))
+    # Apply parent-scope reference for the inner cross check when the outer is
+    # itself a nest whose inner cross is "pure" (all children are non-nest
+    # nodes). In that case the intermediate groups are symmetric — they should
+    # all carry the same inner structure — so we scope data to the
+    # first-level outer group before checking.  If any child of the
+    # intermediate cross is itself a nest, the groups are heterogeneous and
+    # their inner structures may legitimately differ, so we fall back to the
+    # standard per-group check.
+    use_parent_scope <-
+        node$outer$type == "nest" &&
+        node$outer$inner$type == "cross" &&
+        !any(vapply(
+            node$outer$inner$children,
+            function(ch) ch$type == "nest",
+            logical(1L)
+        ))
+
+    if (use_parent_scope) {
+        first_outer_cols <- relationship_columns(node$outer$outer)
+        scope_cols <- c(group_cols, first_outer_cols)
+
+        if (length(scope_cols) == 0L) {
+            issues <- c(
+                issues,
+                validate_rel_cross(node$inner, data, outer_cols, use_global_ref = TRUE)
+            )
+        } else {
+            scope_data <- data[, scope_cols, drop = FALSE]
+            locs <- vctrs::vec_group_loc(scope_data)
+            for (i in seq_len(length(locs$loc))) {
+                sub <- vctrs::vec_slice(data, locs$loc[[i]])
+                issues <- c(
+                    issues,
+                    validate_rel_cross(node$inner, sub, outer_cols, use_global_ref = TRUE)
+                )
+            }
+        }
+    } else {
+        issues <- c(issues, validate_rel_node(node$inner, data, outer_cols))
+    }
 
     # Only recurse into outer if it has sub-structure (cross or nest);
-    # var/compound outers are pure grouping context, not independently validated
+    # var/compound outers are pure grouping context, not independently validated.
     if (node$outer$type %in% c("cross", "nest")) {
         issues <- c(issues, validate_rel_node(node$outer, data, group_cols))
     }
