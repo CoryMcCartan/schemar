@@ -59,16 +59,14 @@
 <li>
 <strong>Type Constructors</strong> – <code><a href="reference/sch_schema.html">sch_numeric()</a></code>, <code><a href="reference/sch_schema.html">sch_integer()</a></code>, <code><a href="reference/sch_schema.html">sch_character()</a></code>, <code><a href="reference/sch_schema.html">sch_factor()</a></code>, <code><a href="reference/sch_schema.html">sch_date()</a></code>, <code><a href="reference/sch_schema.html">sch_datetime()</a></code>, <code><a href="reference/sch_schema.html">sch_logical()</a></code>, <code><a href="reference/sch_schema.html">sch_inherits()</a></code>, <code><a href="reference/sch_schema.html">sch_list_of()</a></code>, <code><a href="reference/sch_schema.html">sch_custom()</a></code>.</li>
 <li>
-<strong>Nesting</strong> – <code><a href="reference/sch_schema.html">sch_nest()</a></code> defines nested column groups (stored flat or as list-columns). Supports <code>.keys</code> for key-value validation.</li>
-<li>
-<strong>Other columns</strong> – <code><a href="reference/sch_schema.html">sch_others()</a></code> permits additional unlisted columns.</li>
-<li>
 <strong>Type registry</strong> – <code>type_fns</code> list maps type names to check/msg/coerce functions. Custom types are added the same way.</li>
+<li>
+<strong>Coercion convention</strong> – <code>type_fns[[type]]$coerce(x, type)</code> always accepts the value and the full type spec. Wrap base coercers like <code><a href="https://rdrr.io/r/base/as.Date.html" class="external-link">as.Date()</a></code> / <code><a href="https://rdrr.io/r/base/as.POSIXlt.html" class="external-link">as.POSIXct()</a></code> so the second argument is not misinterpreted.</li>
 </ul></div>
 <div class="section level3">
 <h3 id="id_2-validation-rvalidater">2. Validation (R/validate.R)<a class="anchor" aria-label="anchor" href="#id_2-validation-rvalidater"></a></h3>
 <ul><li>
-<strong><code>sch_validate(schema, data, check=c("names","types","distinct","nesting"), ...)</code></strong> – Core validation function.</li>
+<strong><code>sch_validate(schema, data, check=c("names","types","distinct","relationships"), ...)</code></strong> – Core validation function.</li>
 <li>
 <strong>Check phases</strong> (independent; each can be toggled):
 <ul><li>
@@ -79,10 +77,12 @@
 <li>
 <code>"distinct"</code> → <code>validate_distinct()</code> – duplicate values in <code>distinct=TRUE</code> columns (NAs excluded per semantics)</li>
 <li>
-<code>"nesting"</code> → <code>validate_nests()</code> – nested schema structure, inner validation, key consistency</li>
+<code>"relationships"</code> → <code>validate_relationships()</code> – key uniqueness, crossing completeness, nesting completeness</li>
 </ul></li>
 <li>
 <strong>Error handling</strong> – Collects <em>all</em> issues before raising a single <code>sch_validation_error</code> with attached <code>$issues</code> list.</li>
+<li>
+<strong>Nested schemas</strong> – Validation recurses into each nested data-frame element and tracks the nested path plus element index in issues.</li>
 </ul></div>
 <div class="section level3">
 <h3 id="id_3-display--format-rschemar--rvalidater">3. Display &amp; Format (R/schema.R + R/validate.R)<a class="anchor" aria-label="anchor" href="#id_3-display--format-rschemar--rvalidater"></a></h3>
@@ -106,31 +106,6 @@
 <p><strong>Important:</strong> Check functions must wrap non-logical results with <code><a href="https://rdrr.io/r/base/Logic.html" class="external-link">isTRUE()</a></code> in validation to avoid crashes on NA returns.</p>
 </div>
 <div class="section level3">
-<h3 id="attributes-vs-list-elements">Attributes vs. List Elements<a class="anchor" aria-label="anchor" href="#attributes-vs-list-elements"></a></h3>
-<ul><li>Type objects (S3 class <code>sch_type</code>) store:
-<ul><li>
-<strong>List elements</strong> – metadata like <code>type</code>, <code>levels</code>, <code>bounds</code>, <code>closed</code> (accessed via <code>$</code>)</li>
-<li>
-<strong>Attributes</strong> – constraints like <code>required</code>, <code>missing</code>, <code>distinct</code>, <code>desc</code> (accessed via <code><a href="https://rdrr.io/r/base/attr.html" class="external-link">attr()</a></code>)</li>
-</ul></li>
-<li>
-<strong>Schema objects</strong> (S3 class <code>sch_schema</code>) additionally have:
-<ul><li>
-<strong>List elements</strong> – <code>cols</code> (column definitions), <code>keys</code> (for nests)</li>
-</ul></li>
-</ul></div>
-<div class="section level3">
-<h3 id="nested-validation-semantics">Nested Validation Semantics<a class="anchor" aria-label="anchor" href="#nested-validation-semantics"></a></h3>
-<ul><li>
-<strong>Flat nest</strong> (unnamed <code><a href="reference/sch_schema.html">sch_nest()</a></code>) – columns are stored side-by-side in the data frame; outer columns collapse to unique rows when checking distinctness.</li>
-<li>
-<strong>Named nest</strong> – columns stored as a list-column of data frames; each element is validated independently.</li>
-<li>
-<strong>Keys</strong> (<code>.keys = c("col1", "col2")</code>) – The unique <em>combinations</em> of these columns must be identical across all groups defined by outer columns (flat nests) or across all list elements (named nests).</li>
-<li>
-<strong>Group-by logic</strong> – Inner <code>distinct=TRUE</code> columns are checked per outer group (when outer distinct/group columns exist).</li>
-</ul></div>
-<div class="section level3">
 <h3 id="na-and-null-semantics">NA and NULL Semantics<a class="anchor" aria-label="anchor" href="#na-and-null-semantics"></a></h3>
 <ul><li>
 <strong>Regular columns</strong> – NAs are explicitly allowed/forbidden per <code>missing</code> attribute.</li>
@@ -141,22 +116,17 @@
 <li>
 <strong>Custom checks</strong> – Must handle NAs gracefully; if a check returns <code>NA</code>, it’s treated as a type failure, not a crash.</li>
 </ul></div>
-<div class="section level3">
-<h3 id="column-name-requirements">Column Name Requirements<a class="anchor" aria-label="anchor" href="#column-name-requirements"></a></h3>
-<ul><li>All columns must be named except <code><a href="reference/sch_schema.html">sch_others()</a></code> (no name) and unnamed <code><a href="reference/sch_schema.html">sch_nest()</a></code> (flat nesting).</li>
-<li>Nested nests (nests inside nests) are only allowed as unnamed nests inside a parent nest.</li>
-</ul></div>
 </div>
 <div class="section level2">
 <h2 id="important-implementation-notes">Important Implementation Notes<a class="anchor" aria-label="anchor" href="#important-implementation-notes"></a></h2>
 <ol style="list-style-type: decimal"><li>
-<strong>sch_validate() modularization</strong> – Each check phase can run independently (useful for performance; missing-column detection now happens in <code>validate_names()</code>, not <code>validate_types_missing()</code>).</li>
-<li>
-<strong>Recursive nesting</strong> – <code>validate_names()</code>, <code>validate_types_missing()</code>, <code>validate_distinct()</code>, and <code>validate_nests()</code> all accept <code>path</code> (column path for error reporting) and call each other recursively for nested columns.</li>
+<strong>sch_validate() modularization</strong> – Each check phase can run independently.</li>
 <li>
 <strong>vctrs integration</strong> – Uses <code><a href="https://vctrs.r-lib.org/reference/vec_unique.html" class="external-link">vctrs::vec_unique_count()</a></code>, <code>vec_group_loc()</code>, <code>vec_slice()</code> for vectorized operations; handles NA semantics correctly.</li>
 <li>
 <strong>Error collection</strong> – All validators return a list of issues (possibly empty); issues are collected, then printed as a bullet list with <code><a href="https://cli.r-lib.org/reference/cli_abort.html" class="external-link">cli::cli_abort()</a></code>.</li>
+<li>
+<strong>Tests</strong> – Prefer <code><a href="https://testthat.r-lib.org/reference/test_that.html" class="external-link">testthat::test_that()</a></code> with <code>expect_*</code> assertions, matching the existing <code>test-schema.R</code> and <code>test-validate.R</code> style.</li>
 </ol></div>
 </div>
 

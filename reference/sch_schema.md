@@ -138,7 +138,9 @@ sch_custom(
   contraints will be described separately and do not need to be included
   in the description. For example for "age", the description might be
   "Age of the patient in years", not "Non-negative integer representing
-  the age of the patient in years".
+  the age of the patient in years". For the overall `sch_schema`, the
+  `desc` will be printed as part of the header for data frames
+  implementing the schema, by default.
 
 - missing:
 
