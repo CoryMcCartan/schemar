@@ -1,4 +1,4 @@
-#' Constructor and validator for a schema-aware data frame
+#' Construct and validate a schema-aware data frame
 #'
 #' Bare-bones constructor for a data frame with an attached schema. This function
 #' should be called by package developers writing their own internal constructors.
@@ -42,9 +42,9 @@ new_sch_df <- function(data, schema, groups = NULL, class = NULL, use_tbl = TRUE
     assert(inherits(schema, "sch_schema"), "{.arg schema} must be a {.cls sch_schema}")
 
     if (isTRUE(use_tbl)) {
-        class <- c(class, "sch_df", "tbl_df", "tbl")
+        class = c(class, "sch_df", "tbl_df", "tbl")
     } else {
-        class <- c(class, "sch_df")
+        class = c(class, "sch_df")
     }
 
     vctrs::new_data_frame(
@@ -64,9 +64,6 @@ validate_sch_df <- function(x) {
     sch_validate(attr(x, "sch_schema"), x)
     x
 }
-
-#' @exportS3Method methods::as
-as.sch_df <- function(object, Class, ...) {}
 
 
 #' @exportS3Method pillar::tbl_sum

@@ -4,7 +4,7 @@
 \alias{sch_df}
 \alias{new_sch_df}
 \alias{validate_sch_df}
-\title{Constructor and validator for a schema-aware data frame}
+\title{Construct and validate a schema-aware data frame}
 \usage{
 new_sch_df(data, schema, groups = NULL, class = NULL, use_tbl = TRUE)
 

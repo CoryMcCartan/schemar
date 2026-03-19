@@ -2,7 +2,6 @@
 
 S3method(format,sch_schema)
 S3method(format,sch_type)
-S3method(methods::as,sch_df)
 S3method(pillar::tbl_sum,sch_df)
 S3method(print,sch_schema)
 S3method(print,sch_type)
