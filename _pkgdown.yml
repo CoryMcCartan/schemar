@@ -11,6 +11,7 @@ reference:
   - sch_coerce
 - title: Build new data frame classes
 - contents:
+  - sch_df
   - -sch_schema
   - -sch_validate
   - -sch_coerce

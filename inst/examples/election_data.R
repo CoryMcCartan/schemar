@@ -123,6 +123,8 @@ d_nj = new_sch_df(enightmodels::nj, schema_elec, class = "elec_data")
 validate_sch_df(d_nj)
 sch_validate(schema_elec, d_nj)
 
+dplyr::filter(d_nj, stage == 2 | party == "dem") |> validate_sch_df()
+dplyr::filter(d_nj, stage == 2 | party == "dem" | geo != "34039_020") |> validate_sch_df()
 
 # Corruptions ------------------------------------------------------------------
 

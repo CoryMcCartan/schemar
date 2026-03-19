@@ -917,6 +917,26 @@ test_that("relationships: three-way crossing missing combo raises error", {
     expect_error(sch_validate(schema, df), "combinations|crossing|incomplete")
 })
 
+test_that("relationships: intermediate-level crossing is enforced", {
+    schema <- sch_schema(
+        .relationships = ~ a / (b * c) / (d * e),
+        a = sch_integer(),
+        b = sch_integer(),
+        c = sch_integer(),
+        d = sch_integer(),
+        e = sch_integer(),
+    )
+    df <- expand.grid(a = 1:2, b = 1:4, c = 1:4) |>
+        subset(b %% 2 == a %% 2 & c %% 2 == a %% 2)
+    df <- rbind(cbind(df, d = 1L, e = 1L), cbind(df, d = 1L, e = 2L))
+    df <- df[do.call(order, df), ]
+
+    expect_no_error(sch_validate(schema, df))
+    # missing b=1, c=1 for a=1
+    expect_error(sch_validate(schema, df[-1, ]), "combinations|crossing|incomplete")
+    expect_error(sch_validate(schema, df[-1:-2, ]), "combinations|crossing|incomplete")
+})
+
 # .relationships validation: nesting ------------------------------------
 
 test_that("relationships: nesting with different inner values per group passes", {
