@@ -7,6 +7,6 @@
 # * https://testthat.r-lib.org/articles/special-files.html
 
 library(testthat)
-library(schemar)
+library(schmear)
 
-test_check("schemar")
+test_check("schmear")

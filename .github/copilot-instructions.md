@@ -1,4 +1,4 @@
-# Copilot Instructions for schemar
+# Copilot Instructions for schmear
 
 ## Build & Test Commands
 
@@ -29,7 +29,7 @@ Run after all edits with `air format .` from the main directory.
 
 ## Package Architecture
 
-**schemar** is a developer-focused package for creating structured data frame subtypes. It has three core layers:
+**schmear** is a developer-focused package for creating structured data frame subtypes. It has three core layers:
 
 ### 1. Schema Definition (R/schema.R)
 - **`sch_schema(...)`** – Top-level function that defines a structured data frame schema. Takes named column specifications (type constructors) and an optional description.

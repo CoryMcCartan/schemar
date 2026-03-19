@@ -1,4 +1,4 @@
-url: http://corymccartan.com/schemar/
+url: http://corymccartan.com/schmear/
 template:
   bootstrap: 5
 
@@ -12,6 +12,4 @@ reference:
 - title: Build new data frame classes
 - contents:
   - sch_df
-  - -sch_schema
-  - -sch_validate
-  - -sch_coerce
+  - dplyr-sch_df

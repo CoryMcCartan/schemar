@@ -1,4 +1,4 @@
-Package: schemar
+Package: schmear
 Title: Build Structured Data Frame Subtypes
 Version: 0.0.0.9000
 Authors@R:
@@ -20,4 +20,4 @@ Suggests:
     dplyr,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
-URL: http://corymccartan.com/schemar/
+URL: http://corymccartan.com/schmear/

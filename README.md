@@ -1,13 +1,13 @@
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
 
-# schemar
+# schmear <a href="http://corymccartan.com/schmear/"><img src="man/figures/logo.png" align="right" height="138" alt="schmear logo" /></a>
 
 <!-- badges: start -->
 
 [![Codecov test
-coverage](https://codecov.io/gh/CoryMcCartan/schemar/graph/badge.svg)](https://app.codecov.io/gh/CoryMcCartan/schemar)
-[![R-CMD-check](https://github.com/CoryMcCartan/schemar/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/CoryMcCartan/schemar/actions/workflows/R-CMD-check.yaml)
+coverage](https://codecov.io/gh/CoryMcCartan/schmear/graph/badge.svg)](https://app.codecov.io/gh/CoryMcCartan/schmear)
+[![R-CMD-check](https://github.com/CoryMcCartan/schmear/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/CoryMcCartan/schmear/actions/workflows/R-CMD-check.yaml)
 <!-- badges: end -->
 
 Provides developer-focused helper functions and S3 classes to ease the
@@ -17,10 +17,10 @@ through common data frame manipulations.
 
 ## Installation
 
-You can install the development version of schemar from
+You can install the development version of schmear from
 [GitHub](https://github.com/) with:
 
 ``` r
 # install.packages("pak")
-pak::pak("CoryMcCartan/schemar")
+pak::pak("CoryMcCartan/schmear")
 ```
