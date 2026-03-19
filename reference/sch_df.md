@@ -1,4 +1,4 @@
-# Constructor and validator for a schema-aware data frame
+# Construct and validate a schema-aware data frame
 
 Bare-bones constructor for a data frame with an attached schema. This
 function should be called by package developers writing their own

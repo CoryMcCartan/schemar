@@ -27,6 +27,8 @@ Define schemas and coerce and validate data against them.
 
 ## Build new data frame classes
 
+- [`dplyr-sch_df`](http://corymccartan.com/schemar/reference/dplyr-sch_df.md)
+  : dplyr integration for sch_df
 - [`new_sch_df()`](http://corymccartan.com/schemar/reference/sch_df.md)
   [`validate_sch_df()`](http://corymccartan.com/schemar/reference/sch_df.md)
-  : Constructor and validator for a schema-aware data frame
+  : Construct and validate a schema-aware data frame
