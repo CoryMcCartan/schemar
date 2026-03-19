@@ -1005,14 +1005,13 @@ test_that("sch_schema() errors when .relationships is not a formula", {
     )
 })
 
-test_that("sch_schema() warns when .relationships root is + (compound at top level)", {
-    expect_warning(
+test_that("sch_schema() does not warn when .relationships root is + (compound at top level)", {
+    expect_no_warning(
         sch_schema(
             .relationships = ~ a + b,
             a = sch_integer(),
             b = sch_character()
-        ),
-        "Top-level"
+        )
     )
 })
 

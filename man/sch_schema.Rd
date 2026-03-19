@@ -139,7 +139,9 @@ See the examples below.}
 The type contraints will be described separately and do not need to be
 included in the description.  For example for "age", the description might
 be "Age of the patient in years", not "Non-negative integer representing
-the age of the patient in years".}
+the age of the patient in years". For the overall \code{sch_schema}, the \code{desc}
+will be printed as part of the header for data frames implementing the
+schema, by default.}
 
 \item{missing}{If \code{TRUE}, the column may be contain missing values. Otherwise,
 any missing values result in an error.}

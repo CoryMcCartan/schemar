@@ -27,7 +27,9 @@
 #'   The type contraints will be described separately and do not need to be
 #'   included in the description.  For example for "age", the description might
 #'   be "Age of the patient in years", not "Non-negative integer representing
-#'   the age of the patient in years".
+#'   the age of the patient in years". For the overall `sch_schema`, the `desc`
+#'   will be printed as part of the header for data frames implementing the
+#'   schema, by default.
 #' @param missing If `TRUE`, the column may be contain missing values. Otherwise,
 #'   any missing values result in an error.
 #' @param required If `TRUE`, the column must be present. If `FALSE`, the column
@@ -83,6 +85,7 @@
 sch_schema <- function(..., .desc = NULL, .relationships = NULL) {
     cols = rlang::dots_list(..., .homonyms = "error", .check_assign = TRUE)
 
+    assert(length(cols) > 0, "{.arg ...} must not be empty")
     if (!all(vapply(cols, inherits, FALSE, what = "sch_type"))) {
         rlang::abort("All columns must be specified using a column type constructor.")
     }
@@ -145,22 +148,12 @@ sch_schema <- function(..., .desc = NULL, .relationships = NULL) {
                 ))
             }
         }
-
-        # Warn on top-level compound (+ at root)
-        if (rel_tree$type == "compound") {
-            rlang::warn(c(
-                "Top-level {.code +} in {.arg .relationships} makes no structural assertion.",
-                "i" = "Did you mean to use {.code *} (crossing) or {.code /} (nesting)?"
-            ))
-        }
     }
 
     structure(
-        list(type = "schema_flat", cols = cols, relationships = rel_tree),
+        list(cols = cols, relationships = rel_tree),
         desc = check_desc(.desc),
-        missing = FALSE,
-        required = TRUE,
-        class = c("sch_schema", "sch_type")
+        class = "sch_schema"
     )
 }
 
@@ -649,14 +642,14 @@ msg_num <- function(type) {
 # nocov end
 
 type_fns = list(
-    numeric = list(check = check_num, msg = msg_num, coerce = as.numeric),
-    integer = list(check = check_num, msg = msg_num, coerce = as.integer),
-    date = list(check = check_num, msg = msg_num, coerce = as.Date),
-    datetime = list(check = check_num, msg = msg_num, coerce = as.POSIXct),
+    numeric = list(check = check_num, msg = msg_num, coerce = function(x, type) as.numeric(x)),
+    integer = list(check = check_num, msg = msg_num, coerce = function(x, type) as.integer(x)),
+    date = list(check = check_num, msg = msg_num, coerce = function(x, type) as.Date(x)),
+    datetime = list(check = check_num, msg = msg_num, coerce = function(x, type) as.POSIXct(x)),
     logical = list(
         check = function(x, type) is.logical(x),
         msg = function(type) "logical vector",
-        coerce = as.logical
+        coerce = function(x, type) as.logical(x)
     ),
 
     factor = list(
@@ -695,7 +688,7 @@ type_fns = list(
     character = list(
         check = function(x, type) is.character(x),
         msg = function(type) "character vector",
-        coerce = as.character
+        coerce = function(x, type) as.character(x)
     ),
 
     any = list(

@@ -2,3 +2,15 @@ url: http://corymccartan.com/schemar/
 template:
   bootstrap: 5
 
+reference:
+- title: Work with schemas
+  desc:  Define schemas and coerce and validate data against them.
+- contents:
+  - sch_schema
+  - sch_validate
+  - sch_coerce
+- title: Build new data frame classes
+- contents:
+  - -sch_schema
+  - -sch_validate
+  - -sch_coerce
